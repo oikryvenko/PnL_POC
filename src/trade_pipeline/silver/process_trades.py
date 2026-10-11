@@ -5,11 +5,9 @@ Business rules for versions:
 - If the latest version is invalid, or ties with a conflicting payload, the trade is
   unusable: it is quarantined and NOT replaced by an older valid version.
 - A trade with any unparseable version cannot be ordered, so it is unusable too.
-- An unusable trade is removed from Silver, so it never feeds positions or P&L. Bronze keeps every
-  raw record ever ingested, so every trade_id ever seen is listed; accepted trades are never deleted.
+- An unusable trade is removed from Silver, so it never feeds positions or P&L. Only trade_ids
+  that the Bronze snapshot still lists are removed; trades absent from the snapshot are never deleted.
 - Trades are processed over their full history; the job's valuation dates do not filter them.
-- Bronze is insert-only history: a record re-sent with changed attributes but the same version and
-  modified_timestamp ties with the older record and is quarantined as AMBIGUOUS_TRADE_VERSION.
 """
 
 from __future__ import annotations
@@ -49,7 +47,7 @@ BRONZE_COLUMNS = (
     "run_id",
 )
 TRADE_SOURCE_BUSINESS_COLUMNS = BRONZE_COLUMNS[:14]
-# Run metadata is excluded so a reject's identity does not depend on which run ingested it.
+# Run metadata is excluded because Bronze is replaced on every run.
 REJECT_KEY_COLUMNS = (*TRADE_SOURCE_BUSINESS_COLUMNS, "source_file", "rejection_reason")
 SILVER_COLUMNS = (
     "trade_id",
@@ -65,8 +63,8 @@ SILVER_COLUMNS = (
     "version",
     "modified_timestamp",
 )
-# Bronze record that produced the Silver row (the run that first ingested it). Not part of the
-# unchanged check, so a lineage-only difference never rewrites a Silver row.
+# Bronze record that produced the Silver row. Bronze is replaced on every run, so lineage is not
+# part of the unchanged check (otherwise every row would be rewritten on every run).
 LINEAGE_COLUMNS = ("bronze_run_id", "bronze_ingestion_timestamp", "source_file")
 DUPLICATE_REASONS = (
     "DUPLICATE_TRADE_VERSION",

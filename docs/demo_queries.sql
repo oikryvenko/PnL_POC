@@ -7,19 +7,18 @@ FROM cibc.bronze.market_prices
 ORDER BY price_date DESC, symbol
 
 
--- 2. Bronze raw trades: insert-only history of distinct raw records (strings, including dirty values).
+-- 2. Bronze raw trades: full snapshot of the latest CSV (strings, including dirty values).
 SELECT trade_id, instrument_id, symbol, side, quantity, price, trade_date, book_id, version,
-       record_hash, source_file, ingestion_timestamp, run_id
+       source_file, ingestion_timestamp, run_id
 FROM cibc.bronze.trades
-ORDER BY trade_id, version, ingestion_timestamp;
+ORDER BY trade_id, version;
 
--- 2b. Bronze trade history: rows first ingested by each run (a rerun of the same CSV adds none).
-SELECT run_id, source_file, MIN(ingestion_timestamp) AS ingested_at, COUNT(*) AS new_records
+-- 2b. One snapshot: every row carries the run and file that last replaced the table.
+SELECT run_id, source_file, MIN(ingestion_timestamp) AS ingested_at, COUNT(*) AS rows_in_snapshot
 FROM cibc.bronze.trades
-GROUP BY run_id, source_file
-ORDER BY ingested_at DESC;
+GROUP BY run_id, source_file;
 
--- 2c. Trades with more than one raw record (new versions or changed attributes kept side by side).
+-- 2c. Trades with several versions in the snapshot (Silver keeps only the latest valid one).
 SELECT trade_id, COUNT(*) AS raw_records, COLLECT_SET(version) AS versions
 FROM cibc.bronze.trades
 WHERE trade_id IS NOT NULL
@@ -139,6 +138,6 @@ UNION ALL SELECT 'gold.daily_pnl', COUNT(*) FROM (
 --      and compare operationMetrics (numTargetRowsInserted / numTargetRowsUpdated should be 0).
 DESCRIBE HISTORY cibc.silver.market_prices LIMIT 5;
 
--- 12c. Bronze trades are insert-only: every recent operation is a MERGE (no WRITE/overwrite, no
---      UPDATE/DELETE), and a rerun of the same CSV shows operationMetrics.numTargetRowsInserted = 0.
+-- 12c. Bronze trades are a full snapshot: each run is a WRITE (overwrite) of the same row count
+--      when the CSV is unchanged (compare operationMetrics.numOutputRows across runs).
 DESCRIBE HISTORY cibc.bronze.trades LIMIT 5;

@@ -1,7 +1,7 @@
 """Ingest raw synthetic trades from the Unity Catalog Volume into Bronze.
 
-Bronze is a historical, insert-only store of distinct raw records: each run inserts only
-records whose record_hash is not already present, and existing rows are never updated or deleted.
+The CSV is a complete trade snapshot: each run replaces cibc.bronze.trades with the distinct raw
+records of the file (INSERT OVERWRITE), so rerunning the same file gives the same table.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ import uuid
 from collections.abc import Sequence
 
 from trade_pipeline import audit, config
-from trade_pipeline.common.delta_stats import read_merge_counts
 
 logger = logging.getLogger(__name__)
 TARGET_TABLE = "cibc.bronze.trades"
@@ -32,10 +31,7 @@ TRADE_COLUMNS = (
     "version",
     "modified_timestamp",
 )
-# SHA-256 of the 14 raw values in a fixed order. to_json of an ARRAY keeps NULLs and escapes
-# delimiters, so NULL, "" and embedded commas hash differently. Must match the backfill migration.
-RECORD_HASH_SQL = f"sha2(to_json(array({', '.join(TRADE_COLUMNS)})), 256)"
-BRONZE_COLUMNS = (*TRADE_COLUMNS, "record_hash", "source_file", "ingestion_timestamp", "run_id")
+BRONZE_COLUMNS = (*TRADE_COLUMNS, "source_file", "ingestion_timestamp", "run_id")
 
 
 def read_trade_csv(spark, input_path: str):
@@ -79,13 +75,12 @@ def read_trade_csv(spark, input_path: str):
 
 
 def prepare_bronze_batch(source_df, input_path: str, run_id: str):
-    """Add record_hash and run metadata, keeping one row per distinct raw record (no business validation)."""
+    """Drop identical raw rows (versions of a trade differ, so they are kept) and add run metadata."""
     from pyspark.sql import functions as F
 
     return (
         source_df.select(*TRADE_COLUMNS)
-        .withColumn("record_hash", F.expr(RECORD_HASH_SQL))
-        .dropDuplicates(["record_hash"])
+        .dropDuplicates()
         .withColumn("source_file", F.lit(input_path))
         .withColumn("ingestion_timestamp", F.current_timestamp())
         .withColumn("run_id", F.lit(run_id))
@@ -93,25 +88,12 @@ def prepare_bronze_batch(source_df, input_path: str, run_id: str):
     )
 
 
-def merge_bronze_trades(spark, batch_df) -> int:
-    """Insert records whose record_hash is new; existing rows are never updated. Returns rows inserted."""
-    # Rows without a hash would never match, so every rerun would re-insert them.
-    if spark.sql(f"SELECT 1 FROM {TARGET_TABLE} WHERE record_hash IS NULL LIMIT 1").first():
-        raise ValueError(
-            f"{TARGET_TABLE} has rows without record_hash; run the record_hash backfill migration first"
-        )
+def overwrite_bronze_trades(spark, batch_df) -> None:
+    """Atomically replace the Bronze snapshot; the table, its schema and grants are kept."""
     view = "_trade_pipeline_bronze_trades_source"
     batch_df.createOrReplaceTempView(view)
-    result = spark.sql(
-        f"""
-        MERGE INTO {TARGET_TABLE} AS target
-        USING {view} AS source
-        ON target.record_hash = source.record_hash
-        WHEN NOT MATCHED THEN INSERT ({', '.join(BRONZE_COLUMNS)})
-        VALUES ({', '.join(f'source.{column}' for column in BRONZE_COLUMNS)})
-        """
-    ).first()
-    return read_merge_counts(result)["inserted_rows"]
+    columns = ", ".join(BRONZE_COLUMNS)
+    spark.sql(f"INSERT OVERWRITE TABLE {TARGET_TABLE} ({columns}) SELECT {columns} FROM {view}")
 
 
 def _get_spark_session():
@@ -137,40 +119,36 @@ def run_ingestion(
     )
 
     def ingest() -> dict:
+        # Validation happens before the overwrite, so a bad file never replaces Bronze.
         source_df = read_trade_csv(spark_session, source_path)
         input_rows = source_df.count()
         batch_df = prepare_bronze_batch(source_df, source_path, run_id)
-        distinct_rows = batch_df.count()
-        rows_written = merge_bronze_trades(spark_session, batch_df)
-        duplicates = {
-            "DUPLICATE_IN_BATCH": input_rows - distinct_rows,
-            "ALREADY_INGESTED": distinct_rows - rows_written,
-        }
+        rows_written = batch_df.count()
+        overwrite_bronze_trades(spark_session, batch_df)
+        duplicate_rows = input_rows - rows_written
         logger.info(
-            "Bronze trades merged run_id=%s task_run_id=%s input_rows=%d distinct_rows=%d inserted=%d "
-            "duplicates_in_batch=%d already_ingested=%d source=%s",
+            "Bronze trades snapshot replaced run_id=%s task_run_id=%s input_rows=%d rows_written=%d "
+            "duplicate_rows=%d source=%s",
             run_id,
             attempt_id,
             input_rows,
-            distinct_rows,
             rows_written,
-            duplicates["DUPLICATE_IN_BATCH"],
-            duplicates["ALREADY_INGESTED"],
+            duplicate_rows,
             source_path,
         )
         return {
             "run_id": run_id,
             "task_run_id": attempt_id,
             "input_rows": input_rows,
-            # output_rows: distinct raw records in the CSV, all present in Bronze after the run;
-            # rows_written: only those newly inserted (= input_rows - duplicate_rows).
-            "output_rows": distinct_rows,
+            # The snapshot holds exactly the distinct CSV rows, so output = written.
+            "output_rows": rows_written,
             "rows_written": rows_written,
+            # Kept for compatibility: rows written into the replacement snapshot.
             "inserted_rows": rows_written,
             "requested_tickers": 0,
             "rejected_rows": 0,
-            "duplicate_rows": input_rows - rows_written,
-            "issue_counts": {reason: count for reason, count in duplicates.items() if count},
+            "duplicate_rows": duplicate_rows,
+            "issue_counts": {"DUPLICATE_IN_BATCH": duplicate_rows} if duplicate_rows else {},
         }
 
     return audit.run_audited_task(

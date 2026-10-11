@@ -1,8 +1,5 @@
--- Bronze trades: insert-only history of distinct raw records. The 14 source columns are kept as
--- STRING exactly as read (invalid values included); rows are never updated or deleted.
--- record_hash = sha2(to_json(array(<14 source columns in order>)), 256) is the MERGE key.
--- Existing tables are NOT changed by this script: apply
--- database/migrations/add_bronze_trades_record_hash.sql instead.
+-- Bronze trades: full snapshot of the latest trade CSV. The 14 source columns are kept as STRING
+-- exactly as read (invalid values included); each run replaces the rows with INSERT OVERWRITE.
 CREATE TABLE IF NOT EXISTS cibc.bronze.trades (
     trade_id STRING,
     counterparty_id STRING,
@@ -20,7 +17,6 @@ CREATE TABLE IF NOT EXISTS cibc.bronze.trades (
     modified_timestamp STRING,
     source_file STRING,
     ingestion_timestamp TIMESTAMP,
-    run_id STRING,
-    record_hash STRING
+    run_id STRING
 )
 USING DELTA;
