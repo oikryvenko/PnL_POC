@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trade_pipeline"
+version = "0.1.0"
+description = "Bronze/Silver/Gold trading ETL on Databricks: market-price and trade ingestion, validation, positions and daily P&L"
+requires-python = ">=3.10"
+dependencies = [
+    "yfinance>=0.2.40",
+    "pandas>=2.0",
+    "numpy<2",
+]
+
+[project.scripts]
+ingest_prices = "trade_pipeline.bronze.ingest_prices:main"
+process_prices = "trade_pipeline.silver.process_prices:main"
+ingest_trades = "trade_pipeline.bronze.ingest_trades:main"
+process_trades = "trade_pipeline.silver.process_trades:main"
+build_positions = "trade_pipeline.gold.build_positions:main"
+calculate_daily_pnl = "trade_pipeline.gold.calculate_daily_pnl:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+# Live-network probes live in tests/live and are run explicitly: pytest -o addopts="" tests/live -s
+addopts = "--ignore=tests/live"

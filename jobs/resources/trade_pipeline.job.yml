@@ -1,0 +1,127 @@
+resources:
+  jobs:
+    trade_pipeline:
+      name: trade_pipeline
+      max_concurrent_runs: 1
+      # Weekdays at 6 PM New York time; unpause after the first successful manual run.
+      schedule:
+        quartz_cron_expression: "0 0 18 ? * MON-FRI"
+        timezone_id: America/New_York
+        pause_status: PAUSED
+      parameters:
+        # Empty tickers and dates mean: default tickers, and the last 7 days up to today.
+        # Set start_date/end_date (YYYY-MM-DD) for manual runs and historical backfills.
+        - name: tickers
+          default: ""
+        - name: start_date
+          default: ""
+        - name: end_date
+          default: ""
+        - name: trade_input_path
+          default: "/Volumes/cibc/bronze/trade_files/dirty_trades.csv"
+      environments:
+        - environment_key: default_env
+          spec:
+            client: "2"
+            dependencies:
+              - ../../dist/*.whl
+      tasks:
+        - task_key: ingest_prices
+          environment_key: default_env
+          python_wheel_task:
+            package_name: trade_pipeline
+            entry_point: ingest_prices
+            parameters:
+              - --tickers
+              - "{{job.parameters.tickers}}"
+              - --start_date
+              - "{{job.parameters.start_date}}"
+              - --end_date
+              - "{{job.parameters.end_date}}"
+              - --pipeline_run_id
+              - "{{job.run_id}}"
+              - --task_run_id
+              - "{{task.run_id}}"
+              - --task_execution_count
+              - "{{task.execution_count}}"
+        - task_key: process_prices
+          depends_on:
+            - task_key: ingest_prices
+          environment_key: default_env
+          python_wheel_task:
+            package_name: trade_pipeline
+            entry_point: process_prices
+            parameters:
+              - --tickers
+              - "{{job.parameters.tickers}}"
+              - --start_date
+              - "{{job.parameters.start_date}}"
+              - --end_date
+              - "{{job.parameters.end_date}}"
+              - --pipeline_run_id
+              - "{{job.run_id}}"
+              - --task_run_id
+              - "{{task.run_id}}"
+              - --task_execution_count
+              - "{{task.execution_count}}"
+        - task_key: ingest_trades
+          environment_key: default_env
+          python_wheel_task:
+            package_name: trade_pipeline
+            entry_point: ingest_trades
+            parameters:
+              - --input_path
+              - "{{job.parameters.trade_input_path}}"
+              - --pipeline_run_id
+              - "{{job.run_id}}"
+              - --task_run_id
+              - "{{task.run_id}}"
+              - --task_execution_count
+              - "{{task.execution_count}}"
+        - task_key: process_trades
+          depends_on:
+            - task_key: ingest_trades
+          environment_key: default_env
+          python_wheel_task:
+            package_name: trade_pipeline
+            entry_point: process_trades
+            parameters:
+              - --start_date
+              - "{{job.parameters.start_date}}"
+              - --end_date
+              - "{{job.parameters.end_date}}"
+              - --pipeline_run_id
+              - "{{job.run_id}}"
+              - --task_run_id
+              - "{{task.run_id}}"
+              - --task_execution_count
+              - "{{task.execution_count}}"
+        - task_key: build_positions
+          depends_on:
+            - task_key: process_prices
+            - task_key: process_trades
+          environment_key: default_env
+          python_wheel_task:
+            package_name: trade_pipeline
+            entry_point: build_positions
+            parameters:
+              - --pipeline_run_id
+              - "{{job.run_id}}"
+              - --task_run_id
+              - "{{task.run_id}}"
+              - --task_execution_count
+              - "{{task.execution_count}}"
+        - task_key: calculate_daily_pnl
+          depends_on:
+            - task_key: build_positions
+          environment_key: default_env
+          python_wheel_task:
+            package_name: trade_pipeline
+            entry_point: calculate_daily_pnl
+            parameters:
+              - --pipeline_run_id
+              - "{{job.run_id}}"
+              - --task_run_id
+              - "{{task.run_id}}"
+              - --task_execution_count
+              - "{{task.execution_count}}"

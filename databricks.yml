@@ -1,0 +1,22 @@
+bundle:
+  name: trade_pipeline
+
+include:
+  - jobs/resources/*.yml
+
+# `databricks bundle deploy` builds the wheel with this command and uploads it for the job.
+artifacts:
+  trade_pipeline_wheel:
+    type: whl
+    build: python -m pip wheel . --no-deps --wheel-dir dist
+    path: .
+    files:
+      - source: ./dist/*.whl
+
+workspace:
+  host: https://dbc-19b79453-bdcd.cloud.databricks.com
+
+targets:
+  dev:
+    mode: development
+    default: true

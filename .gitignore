@@ -1,0 +1,35 @@
+# Python environments
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Python build artifacts
+build/
+dist/
+*.whl
+*.egg-info/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+pytest_full_output.txt
+
+# Databricks local state
+.databricks/
+
+# Credentials and environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
