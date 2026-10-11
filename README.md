@@ -1,6 +1,6 @@
 # Trading ETL Pipeline (Databricks, Delta Lake)
 
-A small Bronze → Silver → Gold pipeline for equity trades and daily closing prices. It ingests a dirty trades CSV and market prices, validates and quarantines bad records, builds daily positions by book, and calculates a daily mark-to-market P&L. It runs as a six-task Databricks job deployed with a Databricks Asset Bundle.
+A small Bronze → Silver → Gold pipeline for equity trades and daily closing prices. It ingests a dirty trades CSV and market prices, validates and quarantines bad records, builds daily positions by book, and calculates a daily mark-to-market P&L. It runs as a six-task Databricks job deployed with a Databricks Asset Bundle. Two Databricks notebooks (`notebooks/`) let users start the job and review its results. The full solution design and user guide is `docs/trading_pipeline_solution_design.html` (self-contained, opens offline).
 
 ## Architecture
 
@@ -19,7 +19,12 @@ ingest_trades ──> process_trades ──┘
 | Gold | `build_positions` | `cibc.gold.positions`, `cibc.gold.valuation_breaks` | Daily positions by date, book, counterparty and instrument, valued at the exact-date close. |
 | Gold | `calculate_daily_pnl` | `cibc.gold.daily_pnl`, `cibc.gold.valuation_breaks` | Daily P&L by date, book and symbol. |
 
-Every task writes a row to `cibc.gold.pipeline_run_log`. All tables use a generated `id BIGINT GENERATED ALWAYS AS IDENTITY`; writers never write `id`.
+Every task writes a row to `cibc.gold.pipeline_run_log`. Silver and Gold tables and the audit log use a generated `id BIGINT GENERATED ALWAYS AS IDENTITY` (Bronze tables have none); writers never write `id`.
+
+| Notebook | Purpose |
+|---|---|
+| `notebooks/01_run_pipeline.py` | Submits the existing job through the Jobs API with `start_date`, `end_date` and `tickers` widgets, only after `confirm_run = YES`; shows the run link and SUBMITTED / RUNNING / SUCCESS / FAILED. |
+| `notebooks/02_pipeline_report.py` | Read-only report: run summary, rejections, positions, daily P&L, valuation breaks and daily execution monitoring (scheduled vs manual runs). |
 
 ## Data sources
 
@@ -31,6 +36,7 @@ Every task writes a row to `cibc.gold.pipeline_run_log`. All tables use a genera
 
 - **Prices:** if any expected (symbol, trading day) pair is missing from the response, the task fails before writing. Weekends, NYSE holidays and future dates are not expected.
 - **Trades:** the CSV header must match the 14 expected columns, an empty file is rejected, structurally corrupt rows fail the task, and all values stay strings (invalid business values are kept for Silver to quarantine). `cibc.bronze.trades` is a **historical, insert-only store of distinct raw records**, not a copy of the latest file: `record_hash = sha2(to_json(array(<14 raw columns>)), 256)`, the batch is deduplicated on it, and a Delta `MERGE ... WHEN NOT MATCHED THEN INSERT` on `record_hash` adds only new records. Existing rows (and their `source_file`, `ingestion_timestamp`, `run_id`) are never updated or deleted, so a rerun of the same CSV inserts nothing, and new trades, new versions and changed attributes become new rows. Trades that disappear from a later file stay in Bronze.
+- **Upgrading from the earlier `INSERT OVERWRITE` version:** apply `database/migrations/add_bronze_trades_record_hash.sql` (adds `record_hash`, backfills it, then checks that no row is left without a hash) **before** the next run. Until then `ingest_trades` fails without writing, and the trade branch and Gold are skipped. Rows from the last overwrite load keep their exact duplicate rows; Silver still rejects them as duplicates.
 
 ## Silver rules
 
@@ -96,13 +102,21 @@ databricks current-user me
 databricks fs cp data/dirty_trades.csv dbfs:/Volumes/cibc/bronze/trade_files/dirty_trades.csv
 ```
 
-**6. Build the wheel** (optional check; `deploy` also builds it): `./scripts/deploy.sh build` creates `dist/trade_pipeline-0.1.0-py3-none-any.whl` from `pyproject.toml` and lists its modules. The job references the bundle-managed wheel (`jobs/resources/trade_pipeline.job.yml`, `../../dist/*.whl`), never a manually uploaded file.
+**6. Build the wheel** (optional check; `deploy` also builds it): `./scripts/deploy.sh build` creates `dist/trade_pipeline-0.1.0-py3-none-any.whl` from `pyproject.toml` and lists its modules. The job references the bundle-managed wheel (`jobs/resources/trade_pipeline.job.yml`, `../../dist/*.whl`), never a manually uploaded file. The file name only changes with the version, so bump `version` in `pyproject.toml` for each release to make sure serverless installs the new code rather than a cached copy (not verified either way).
 
 **7. Validate:** `./scripts/deploy.sh validate` (runs `databricks bundle validate -t dev`).
 
-**8. Deploy:** `./scripts/deploy.sh deploy` validates, builds the wheel (`artifacts` in `databricks.yml`), uploads it and creates the job (named `[dev <user>] trade_pipeline` in development mode) under `/Workspace/Users/<you>/.bundle/trade_pipeline/dev`. Equivalent: `databricks bundle deploy -t dev`.
+**8. Deploy:** `./scripts/deploy.sh deploy` validates, builds the wheel (`artifacts` in `databricks.yml`), uploads it and creates the job (named `[dev <user>] trade_pipeline` in development mode) under `/Workspace/Users/<you>/.bundle/trade_pipeline/dev`. The repository files are synced to `.../dev/files`, so the notebooks appear as `.../dev/files/notebooks/01_run_pipeline` and `02_pipeline_report`. Deploying does not start a run. Equivalent: `databricks bundle deploy -t dev`. Apply any pending migration (step 4) before the first run of new code.
 
-**9. Run:** `./scripts/deploy.sh run` (default dates: the last 7 days to today), or with dates: `./scripts/deploy.sh run --params start_date=2026-09-01,end_date=2026-09-30`. Equivalent: `databricks bundle run trade_pipeline -t dev --params ...`. Job parameters: `tickers` (comma-separated; empty = the 10 defaults), `start_date`, `end_date` (inclusive, `YYYY-MM-DD`), `trade_input_path`.
+**9. Run:** `./scripts/deploy.sh run` (default dates: the last 7 days to today), or with dates: `./scripts/deploy.sh run --params start_date=2026-09-01,end_date=2026-09-30`. Equivalent: `databricks bundle run trade_pipeline -t dev --params ...`. Job parameters: `tickers` (comma-separated; empty = the 10 defaults), `start_date`, `end_date` (inclusive, `YYYY-MM-DD`), `trade_input_path`. You can also start it from the Jobs UI (*Run now with different parameters*) or from notebook 01 (below).
+
+**Run and review from notebooks.**
+
+1. Open `.../dev/files/notebooks/01_run_pipeline` and attach serverless compute. Set `start_date`, `end_date` and optionally `tickers` (blank = job default).
+2. **Run all** with `confirm_run = NO`: inputs are validated and the job is resolved by name (`trade_pipeline` or `[dev <user>] trade_pipeline`; `job_id` overrides), but nothing is submitted.
+3. Set `confirm_run = YES` and run again. If a run is already active, the notebook monitors it instead of starting another. The widget is then removed, so re-running cannot submit twice. Wait for `SUCCESS` or `FAILED` and open the run link; submission alone does not mean success.
+4. Open `02_pipeline_report` and **Run all**. Blank `run_id` means the latest run whose six tasks all succeeded; blank `processing_date` means the latest date in `daily_pnl`. Section A shows status and counts (metrics the audit log does not store show `NOT AVAILABLE`), B rejections, C positions, D daily P&L, E valuation breaks, F daily execution monitoring.
+5. Idempotency check: run the same dates again. Section A should show Bronze trades newly inserted = 0 and duplicates = rows read.
 
 **10. Check the run.** `databricks bundle summary -t dev` prints the job URL; open the run in the Jobs UI and confirm all six tasks succeeded. Task results are also in the audit table:
 
@@ -138,11 +152,16 @@ UNION ALL SELECT 'gold.valuation_breaks', COUNT(*) FROM cibc.gold.valuation_brea
 | Build fails or `python` not found | Put `python` and `pip` on PATH; run `./scripts/deploy.sh build` to see the error. |
 | Validate warns about `dist/*.whl` | Run `./scripts/deploy.sh build` first, or deploy (which builds it). |
 | `ingest_trades`: could not read trade CSV | Create the Volume (`volumes/trade_files.sql`) and upload the CSV to the path above. |
-| Table or column not found, or MERGE schema errors | Run the `database/` SQL; apply the lineage migration to older Silver tables. |
+| Table or column not found, or MERGE schema errors | Run the `database/` SQL; apply the migrations to tables created by earlier versions. |
+| `ingest_trades`: "rows without record_hash" or column `record_hash` not found | Apply `database/migrations/add_bronze_trades_record_hash.sql`, then repair the run. |
+| Trade quarantined as `AMBIGUOUS_TRADE_VERSION` after a re-sent file | The record changed without a new `version` or `modified_timestamp`; Bronze keeps both copies. Send a new version. |
 | `ingest_prices` or `process_prices`: missing expected prices | The range includes a trading day with no provider data (for example today before the close), or the provider is unreachable. Narrow the dates and rerun. |
 | Schedule never fires | It is `PAUSED`, and development mode keeps schedules paused. |
+| Notebook 01 cannot find the job | Several or no jobs match the name; set the `job_id` widget. |
 
-**Daily run:** the job has a weekday 6 PM America/New_York schedule (`0 0 18 ? * MON-FRI`) and stays `PAUSED`; the repository has only the `dev` Bundle target, and development mode keeps schedules paused on every deploy. Enable or pause it from the Databricks Jobs UI (job `trade_pipeline` > Schedules & Triggers). With empty `start_date`/`end_date`, price ingestion and processing use the last 7 days up to today (UTC); both tasks resolve the same rule, and older Silver history is preserved.
+**Daily run:** the job has a weekday 6 PM America/New_York schedule (`0 0 18 ? * MON-FRI`) and stays `PAUSED`; the repository has only the `dev` Bundle target, and development mode pauses schedules again on every deploy. Enable or pause it from the Databricks Jobs UI (job `[dev <user>] trade_pipeline` > Schedules & Triggers), or run it manually with notebook 01. No scheduled run has been verified yet. The cron also fires on NYSE holidays; the price tasks then find no new session and succeed without new prices. With empty `start_date`/`end_date`, price ingestion and processing use the last 7 days up to the runtime's current date (`date.today()`, UTC on serverless); both tasks resolve the same rule, and older Silver history is preserved.
+
+**Monitoring daily execution:** notebook 02 section F lists one row per job run (not one per task) from the Jobs API and the audit log, grouped by New York business date: successful, failed and multiple runs, and the trigger type (`PERIODIC` = scheduled, `ONE_TIME` = manual). A manual run never counts as a scheduled one. Missing scheduled runs are reported only when the schedule is `UNPAUSED` and the `schedule_active_since` widget is set, because the Jobs API does not expose pause history.
 
 **Operational metrics:** `cibc.gold.pipeline_run_log` has one row per task attempt (query above).
 
@@ -152,23 +171,25 @@ For `ingest_trades`: `input_rows` = CSV rows read; `output_rows` = distinct raw 
 
 ## Tests
 
-For a five-minute demo, `docs/demo_queries.sql` has read-only queries for Bronze, Silver, rejects, positions, P&L, breaks, audit metrics, row counts and an idempotency check. `docs/data_contracts.md` summarizes the table contracts.
+For a five-minute demo, `docs/demo_queries.sql` has read-only queries for Bronze (including trade history), Silver, rejects, positions, P&L, breaks, audit metrics, row counts and idempotency checks. `docs/data_contracts.md` summarizes the table contracts, and `docs/trading_pipeline_solution_design.html` is the full design and user guide.
 
 ```
 python -m pytest tests -q
 ```
 
-The default suite is local and offline. Spark-based tests (financial scenarios, version selection, lineage) need `pyspark` and Java and are **skipped** without them; skipped tests are not passes. Delta MERGE/DELETE result columns, identity columns and the six-task run need Databricks. Live-network probes (Stooq, Yahoo) are excluded by default: `python -m pytest -o addopts="" tests/live -s`.
+The default suite is local and offline. It includes mocked ingestion tests, SQL-shape and packaging tests, and unit tests of the notebook helper cells (`tests/test_notebooks.py`). Spark-based tests (financial scenarios, version selection, lineage) need `pyspark` and Java, and the insert-only Bronze history tests (`tests/test_bronze_trades_history.py`) also need `delta-spark`; without them they are **skipped**, and skipped tests are not passes. Delta MERGE/DELETE result columns, identity columns, the notebooks and the six-task run need Databricks. Live-network probes (Stooq, Yahoo) are excluded by default: `python -m pytest -o addopts="" tests/live -s`.
 
 ## Assumptions and tradeoffs
 
-- USD only; a small hard-coded instrument universe instead of a reference table.
-- NYSE calendar approximated with pandas holidays (no early closes).
+- USD only; a small hard-coded instrument universe instead of a reference table. No trade status, so cancellations are not supported.
+- Lightweight rule-based NYSE calendar (`common/market_calendar.py`): no early closes or exceptional closures; New Year's Day uses `nearest_workday`, which wrongly treats 31 December as a holiday when 1 January is a Saturday; "today" is the runtime's date, not explicitly America/New_York; today's session is expected even before the close.
 - Daily mark-to-market P&L proxy; no cost basis, fees or FX.
 - Yahoo Finance instead of Stooq (see above); free source, no service guarantees.
-- Python wheel tasks instead of notebooks: equivalent parameterized, executable tasks, but not literal notebooks.
+- ETL runs as Python wheel tasks (testable, versioned); notebooks are used only to start the job and report results.
+- Bronze trades keep every distinct raw record, so storage grows and Silver re-reads the full history each run.
 - Gold is rebuilt in full from Silver each run (scoped deletes) rather than incrementally.
+- The audit table does not store inserted/updated/deleted counts (only logged), so the report shows them as `NOT AVAILABLE`.
 
 ## Production improvements
 
-An approved market-data feed with managed credentials, retries and monitoring; incremental Silver trade processing (Silver currently re-reads the full Bronze history); a reference table for instruments and books; alerting on failed runs and data-quality thresholds; permissions, retention and cost controls; CI running the Spark tests; and an exchange-calendar library.
+An approved market-data feed with managed credentials, retries and monitoring; incremental Silver trade processing (Silver currently re-reads the full Bronze history); reference tables for instruments, counterparties and books; trade lifecycle (status, cancellations); storing insert/update/delete counts in the audit table; a production bundle target with a service-principal `run_as` and an unpaused schedule; alerting on failed or missing runs and data-quality thresholds; permissions, retention and cost controls; CI running the Spark and Delta tests; and an authoritative exchange-calendar library. See section 33 of `docs/trading_pipeline_solution_design.html` for the prioritized list.
