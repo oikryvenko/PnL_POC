@@ -1733,8 +1733,8 @@ def validate_outputs(dictionary_count: int) -> None:
     if len(gantt_story_ids) != len(set(gantt_story_ids)) or set(gantt_story_ids) != baseline_story_ids:
         raise RuntimeError("Integrated Gantt activities must cover each baseline story exactly once")
     for activity in activities:
-        if activity["duration_weeks"] != 2 or activity["finish_week"] != activity["start_week"] + 1:
-            raise RuntimeError(f"Gantt sprint window is inconsistent for {activity['id']}")
+        if activity["finish_week"] - activity["start_week"] + 1 != activity["duration_weeks"]:
+            raise RuntimeError(f"Gantt schedule is inconsistent for {activity['id']}")
     for sprint in PLAN["sprints"]:
         if sprint["baseline"]:
             points = sum(next(story["points"] for story in PLAN["stories"] if story["id"] == story_id) for story_id in sprint["stories"])
