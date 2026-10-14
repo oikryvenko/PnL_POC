@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trading ETL &amp; Daily P&amp;L Platform — Solution Architecture, Technical Design &amp; User Guide</title>
+<style>
+:root{
+  --navy:#0b1f3a; --navy2:#13294b; --blue:#1f6feb; --blue-l:#e7f0fd;
+  --green:#1a7f37; --green-l:#e6f4ea; --amber:#b26b00; --amber-l:#fff4e0;
+  --red:#b42318; --red-l:#fdecea; --gray:#f3f5f8; --line:#d6dbe3; --text:#1d2533; --muted:#5b6575;
+  --mono:Consolas,"Courier New",monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:"Segoe UI",Arial,Helvetica,sans-serif;color:var(--text);background:var(--gray);line-height:1.55;font-size:15px}
+a{color:var(--blue)}
+.skip{position:absolute;left:-999px;top:0;background:#fff;padding:8px;z-index:100}
+.skip:focus{left:8px}
+/* Sidebar */
+nav#toc{position:fixed;top:0;left:0;bottom:0;width:290px;background:var(--navy);color:#cfd8e6;overflow-y:auto;padding:18px 0 40px;z-index:20}
+nav#toc .brand{padding:0 20px 14px;border-bottom:1px solid #22385c;margin-bottom:8px}
+nav#toc .brand b{display:block;color:#fff;font-size:15px}
+nav#toc .brand span{font-size:12px;color:#8fa3c0}
+nav#toc ol{list-style:none;margin:0;padding:0}
+nav#toc a{display:block;padding:4px 20px;color:#cfd8e6;text-decoration:none;font-size:13px;border-left:3px solid transparent}
+nav#toc a:hover,nav#toc a:focus{background:#13294b;color:#fff}
+nav#toc a.active{border-left-color:#58a6ff;background:#13294b;color:#fff}
+nav#toc .grp{padding:10px 20px 2px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#7f93b3}
+#menu{display:none;position:fixed;top:10px;left:10px;z-index:30;background:var(--navy);color:#fff;border:0;padding:8px 12px;border-radius:6px;font-size:14px}
+main{margin-left:290px;padding:0 0 60px}
+/* Cover */
+.cover{background:linear-gradient(135deg,var(--navy) 0%,#1d3d6e 70%,var(--blue) 100%);color:#fff;padding:70px 56px 56px}
+.cover .kicker{font-size:13px;letter-spacing:.15em;text-transform:uppercase;color:#9fc1ff}
+.cover h1{font-size:40px;margin:10px 0 6px;line-height:1.15}
+.cover h2{font-size:21px;font-weight:400;margin:0 0 28px;color:#dce7f7;border:0;padding:0}
+.cover table.meta{border-collapse:collapse;font-size:14px;background:transparent;box-shadow:none;width:auto}
+.cover table.meta td{border:0;padding:3px 18px 3px 0;color:#e6eefb;background:transparent}
+.cover table.meta td:first-child{color:#9fc1ff}
+/* Sections */
+section{background:#fff;margin:22px 28px;padding:26px 32px;border-radius:10px;box-shadow:0 1px 3px rgba(11,31,58,.08)}
+section>h2{margin-top:0;color:var(--navy);font-size:24px;border-bottom:2px solid var(--blue-l);padding-bottom:8px}
+h3{color:var(--navy2);font-size:18px;margin:24px 0 8px}
+h4{color:var(--navy2);font-size:15px;margin:18px 0 6px}
+.num{display:inline-block;min-width:34px;color:var(--blue)}
+p{margin:8px 0}
+table{border-collapse:collapse;width:100%;margin:10px 0 16px;font-size:13.5px;background:#fff}
+th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+th{background:var(--navy2);color:#fff;font-weight:600}
+tr:nth-child(even) td{background:#f8fafc}
+.tablewrap{overflow-x:auto}
+code{font-family:var(--mono);font-size:12.5px;background:#eef2f7;padding:1px 4px;border-radius:3px}
+pre{font-family:var(--mono);font-size:12.5px;background:#0f1b2d;color:#e6edf3;padding:14px 16px;border-radius:8px;overflow-x:auto;line-height:1.45}
+pre code{background:transparent;padding:0;color:inherit}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:14px 0}
+.card{background:var(--gray);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+.card h4{margin:0 0 6px}
+.card.future{background:var(--amber-l);border-color:#f0c36d}
+.card.ok{background:var(--green-l);border-color:#9fd4ae}
+.callout{border-left:5px solid var(--blue);background:var(--blue-l);padding:12px 16px;border-radius:6px;margin:12px 0}
+.callout.assume{border-color:var(--amber);background:var(--amber-l)}
+.callout.limit{border-color:var(--red);background:var(--red-l)}
+.callout.ok{border-color:var(--green);background:var(--green-l)}
+.callout b.t{display:block;margin-bottom:4px}
+.badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;border-radius:10px;letter-spacing:.02em;white-space:nowrap}
+.b-impl{background:var(--green-l);color:var(--green);border:1px solid #9fd4ae}
+.b-part{background:var(--amber-l);color:var(--amber);border:1px solid #f0c36d}
+.b-future{background:var(--amber-l);color:#8a4b00;border:1px solid #e0a03a}
+.b-nv{background:var(--red-l);color:var(--red);border:1px solid #f1a9a2}
+.b-dev{background:#eef2f7;color:var(--navy2);border:1px solid var(--line)}
+details{border:1px solid var(--line);border-radius:8px;margin:10px 0;background:#fbfcfe}
+details>summary{cursor:pointer;padding:10px 14px;font-weight:600;color:var(--navy2)}
+details>div{padding:4px 16px 12px}
+figure{margin:16px 0;background:#fbfcfe;border:1px solid var(--line);border-radius:8px;padding:12px}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-size:12.5px;color:var(--muted);margin-top:6px}
+.small{font-size:12.5px;color:var(--muted)}
+.tree{background:#f6f8fa;color:#1d2533;border:1px solid var(--line)}
+.toolbar{margin:0 28px;padding-top:14px}
+.toolbar button{background:#fff;border:1px solid var(--line);border-radius:6px;padding:6px 10px;margin-right:6px;cursor:pointer;font-size:13px}
+.formula{font-family:var(--mono);background:#f6f8fa;border:1px solid var(--line);border-radius:6px;padding:12px 16px;white-space:pre-wrap;font-size:13px}
+@media (max-width:980px){
+  nav#toc{transform:translateX(-100%);transition:transform .2s}
+  nav#toc.open{transform:none}
+  #menu{display:block}
+  main{margin-left:0}
+  section{margin:14px 10px;padding:18px}
+  .cover{padding:60px 22px 36px}
+  .cover h1{font-size:30px}
+  .toolbar{margin:0 10px}
+}
+@media print{
+  nav#toc,#menu,.toolbar,.skip{display:none!important}
+  main{margin:0}
+  body{background:#fff;font-size:11pt}
+  section{box-shadow:none;margin:0 0 12px;padding:8px 0;border-radius:0;page-break-inside:auto}
+  .cover{background:#0b1f3a!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;page-break-after:always}
+  figure,table,pre,.callout,.card{page-break-inside:avoid}
+  h2,h3{page-break-after:avoid}
+  th{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  pre{white-space:pre-wrap}
+  details>div{display:block}
+  a{color:inherit;text-decoration:none}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#s1">Skip to content</a>
+<button id="menu" aria-controls="toc" aria-expanded="false">&#9776; Contents</button>
+
+<nav id="toc" aria-label="Table of contents">
+  <div class="brand"><b>Trading ETL &amp; Daily P&amp;L</b><span>Solution Design &amp; User Guide · v1.0</span></div>
+  <ol>
+    <li class="grp">Overview</li>
+    <li><a href="#s1">1. Executive summary</a></li>
+    <li><a href="#s2">2. Business requirements</a></li>
+    <li><a href="#s3">3. Functional requirements</a></li>
+    <li><a href="#s4">4. Non-functional requirements</a></li>
+    <li><a href="#s5">5. Technology stack</a></li>
+    <li class="grp">Architecture</li>
+    <li><a href="#s6">6. End-to-end architecture</a></li>
+    <li><a href="#s7">7. Data flow diagrams</a></li>
+    <li><a href="#s8">8. Databricks workflow</a></li>
+    <li><a href="#s9">9. Repository &amp; code structure</a></li>
+    <li><a href="#s10">10. Configuration &amp; parameters</a></li>
+    <li class="grp">Data design</li>
+    <li><a href="#s11">11. Data sources</a></li>
+    <li><a href="#s12">12. Bronze design</a></li>
+    <li><a href="#s13">13. Silver design</a></li>
+    <li><a href="#s14">14. Gold design</a></li>
+    <li><a href="#s15">15. Data model</a></li>
+    <li><a href="#s16">16. Data quality</a></li>
+    <li><a href="#s17">17. Trade versioning &amp; dedup</a></li>
+    <li><a href="#s18">18. Position calculation</a></li>
+    <li><a href="#s19">19. Daily P&amp;L calculation</a></li>
+    <li><a href="#s20">20. Data lineage</a></li>
+    <li class="grp">Operations</li>
+    <li><a href="#s21">21. Audit logging</a></li>
+    <li><a href="#s22">22. Error handling</a></li>
+    <li><a href="#s23">23. Manual execution</a></li>
+    <li><a href="#s24">24. Scheduled execution</a></li>
+    <li><a href="#s25">25. User reporting</a></li>
+    <li><a href="#s26">26. Deployment</a></li>
+    <li><a href="#s27">27. Security &amp; permissions</a></li>
+    <li><a href="#s28">28. Testing</a></li>
+    <li><a href="#s29">29. Idempotency</a></li>
+    <li class="grp">Assessment</li>
+    <li><a href="#s30">30. Design decisions</a></li>
+    <li><a href="#s31">31. Business assumptions</a></li>
+    <li><a href="#s32">32. Technical limitations</a></li>
+    <li><a href="#s33">33. Production improvements</a></li>
+    <li><a href="#s34">34. Troubleshooting</a></li>
+    <li><a href="#s35">35. Five-minute demo</a></li>
+    <li><a href="#s36">36. Glossary</a></li>
+    <li><a href="#appx">Appendix: verification status</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+<header class="cover" id="top">
+  <div class="kicker">Solution Design Document</div>
+  <h1>Trading ETL &amp; Daily P&amp;L Platform</h1>
+  <h2>Solution Architecture, Technical Design &amp; User Guide</h2>
+  <table class="meta">
+    <tr><td>Version</td><td>1.0</td></tr>
+    <tr><td>Date</td><td>2026-10-11</td></tr>
+    <tr><td>Platform</td><td>Databricks (serverless) · PySpark · Delta Lake · Unity Catalog · Workflows · Asset Bundles</td></tr>
+    <tr><td>Scope</td><td>Technical challenge / proof of concept (repository <code style="background:#1d3d6e;color:#fff">PnL_POC</code>)</td></tr>
+    <tr><td>Status labels</td><td><span class="badge b-impl">IMPLEMENTED</span> <span class="badge b-part">PARTIAL</span> <span class="badge b-future">FUTURE ENHANCEMENT — NOT IMPLEMENTED</span> <span class="badge b-nv">NOT VERIFIED</span></td></tr>
+  </table>
+</header>
+
+<div class="toolbar">
+  <button type="button" id="expandAll">Expand all details</button>
+  <button type="button" id="collapseAll">Collapse all details</button>
+  <button type="button" onclick="window.print()">Print / save as PDF</button>
+</div>
+
+<!-- 1 -->
+<section id="s1">
+<h2><span class="num">1</span>Executive summary</h2>
+<p>The platform ingests a trade file and daily equity closing prices, validates and versions the trades, and produces <b>daily positions</b>, <b>daily mark-to-market P&amp;L</b> and <b>valuation exceptions</b>. It runs as a six-task Databricks Job over a Bronze → Silver → Gold Delta Lake architecture in the Unity Catalog catalog <code>cibc</code>. Every task writes an audit row, and two Databricks notebooks let users run the Job and review its results.</p>
+<div class="cards">
+  <div class="card ok"><h4>Centralised trade processing</h4>One Silver row per <code>trade_id</code>, chosen by version, with every rejected record kept in a reject table and a reason.</div>
+  <div class="card ok"><h4>Market-data integration</h4>Daily unadjusted closes for 10 US tickers from Yahoo Finance (<code>yfinance</code>) with retry and completeness checks.</div>
+  <div class="card ok"><h4>Data validation</h4>25 trade rules, 8 price rules and duplicate/ambiguity detection. Bad records are quarantined, not dropped.</div>
+  <div class="card ok"><h4>Trade version control</h4>Highest <code>version</code> wins, then the latest <code>modified_timestamp</code>. An invalid latest version never falls back to an older one.</div>
+  <div class="card ok"><h4>Lineage</h4><code>source_file</code>, <code>ingestion_timestamp</code> and Bronze <code>run_id</code> are carried into Silver. Gold rows carry the run that last changed them.</div>
+  <div class="card ok"><h4>Positions &amp; daily valuation</h4>Cumulative positions on every NYSE session, valued at the exact-date close.</div>
+  <div class="card ok"><h4>P&amp;L reporting</h4>Daily P&amp;L per date, book and symbol. P&amp;L stays NULL (never 0) when a price is missing.</div>
+  <div class="card ok"><h4>Exception management</h4><code>cibc.gold.valuation_breaks</code> records missing prices, missing baselines and unpriced trades per run.</div>
+  <div class="card ok"><h4>Operational auditability</h4><code>cibc.gold.pipeline_run_log</code>: one row per task attempt with status, counts and errors.</div>
+</div>
+<figure>
+<svg viewBox="0 0 1000 380" role="img" aria-labelledby="d1t">
+<title id="d1t">High-level architecture of the implemented solution</title>
+<defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#1f6feb"/></marker></defs>
+<g font-family="Segoe UI,Arial" font-size="12" text-anchor="middle">
+<text x="95" y="28" font-weight="700" fill="#0b1f3a">SOURCES</text>
+<text x="305" y="28" font-weight="700" fill="#8a5a00">BRONZE (raw)</text>
+<text x="520" y="28" font-weight="700" fill="#5b6575">SILVER (validated)</text>
+<text x="730" y="28" font-weight="700" fill="#b26b00">GOLD (business)</text>
+<text x="915" y="28" font-weight="700" fill="#0b1f3a">CONSUMPTION</text>
+<rect x="20" y="60" width="150" height="60" rx="8" fill="#e7f0fd" stroke="#1f6feb"/><text x="95" y="86">Yahoo Finance API</text><text x="95" y="103" font-size="11">(yfinance, daily close)</text>
+<rect x="20" y="200" width="150" height="60" rx="8" fill="#e7f0fd" stroke="#1f6feb"/><text x="95" y="226">Trades CSV</text><text x="95" y="243" font-size="11">UC Volume trade_files</text>
+<rect x="220" y="60" width="170" height="60" rx="8" fill="#fbeedd" stroke="#b26b00"/><text x="305" y="86">bronze.market_prices</text><text x="305" y="103" font-size="11">MERGE (symbol, price_date)</text>
+<rect x="220" y="200" width="170" height="60" rx="8" fill="#fbeedd" stroke="#b26b00"/><text x="305" y="226">bronze.trades</text><text x="305" y="243" font-size="11">insert-only MERGE record_hash</text>
+<rect x="430" y="60" width="180" height="60" rx="8" fill="#eef1f5" stroke="#5b6575"/><text x="520" y="86">silver.market_prices</text><text x="520" y="103" font-size="11">+ market_prices_rejects</text>
+<rect x="430" y="200" width="180" height="60" rx="8" fill="#eef1f5" stroke="#5b6575"/><text x="520" y="226">silver.trades</text><text x="520" y="243" font-size="11">+ trades_rejects</text>
+<rect x="650" y="45" width="160" height="50" rx="8" fill="#fff4e0" stroke="#b26b00"/><text x="730" y="75">gold.positions</text>
+<rect x="650" y="135" width="160" height="50" rx="8" fill="#fff4e0" stroke="#b26b00"/><text x="730" y="165">gold.daily_pnl</text>
+<rect x="650" y="225" width="160" height="50" rx="8" fill="#fff4e0" stroke="#b26b00"/><text x="730" y="255">gold.valuation_breaks</text>
+<rect x="850" y="105" width="130" height="90" rx="8" fill="#e6f4ea" stroke="#1a7f37"/><text x="915" y="135">Notebooks 01 / 02</text><text x="915" y="153">Demo SQL</text><text x="915" y="171" font-size="11">read-only reporting</text>
+<rect x="220" y="315" width="590" height="40" rx="8" fill="#0b1f3a"/><text x="515" y="340" fill="#fff">cibc.gold.pipeline_run_log — one audit row per task attempt (all six tasks)</text>
+<g stroke="#1f6feb" stroke-width="2" fill="none" marker-end="url(#a1)">
+<path d="M170,90H218"/><path d="M170,230H218"/><path d="M390,90H428"/><path d="M390,230H428"/>
+<path d="M610,90L648,72"/><path d="M610,230L648,85"/><path d="M610,95L648,155"/><path d="M610,225L648,170"/>
+<path d="M730,95V133"/><path d="M810,70L848,130"/><path d="M810,160H848"/><path d="M810,250L848,180"/>
+</g></g>
+</svg>
+<figcaption>Figure 1 — Implemented architecture. Gold positions and P&amp;L both read Silver trades and prices. Valuation breaks are written by both Gold tasks.</figcaption>
+</figure>
+<div class="callout limit"><b class="t">Status at a glance (2026-10-11)</b>
+The six-task Job has completed successfully on Databricks in an earlier version of this code. The current version (insert-only Bronze trades) was rebuilt and deployed today, but it has <b>not been executed</b>. It needs the <code>record_hash</code> migration first (<a href="#s26">§26</a>). The schedule exists but is <b>PAUSED</b>, so no scheduled run has happened. <span class="badge b-nv">NOT VERIFIED</span> for current-version run results and for scheduled execution.</div>
+</section>
+
+<!-- 2 -->
+<section id="s2">
+<h2><span class="num">2</span>Business requirements</h2>
+<p>This section restates the original technical-challenge requirements, grouped by layer and inferred from the repository and its documentation.</p>
+<div class="tablewrap"><table>
+<tr><th>Area</th><th>Requirement</th></tr>
+<tr><td>Bronze</td><td>Ingest daily closing prices from a market-data API (challenge names <b>Stooq</b>). Ingest a trade CSV. Store raw data in Delta. Re-runs must not duplicate data.</td></tr>
+<tr><td>Silver</td><td>Enforce schema and types, validate business rules, deduplicate trade versions, quarantine bad records, measure data quality.</td></tr>
+<tr><td>Gold</td><td>Match trades to prices, calculate positions, calculate daily P&amp;L, report valuation breaks (missing prices).</td></tr>
+<tr><td>Operations</td><td>Parameterised execution (tickers, dates), daily schedule, logging and monitoring, reproducible deployment.</td></tr>
+</table></div>
+</section>
+
+<!-- 3 -->
+<section id="s3">
+<h2><span class="num">3</span>Functional requirements &amp; traceability</h2>
+<div class="tablewrap"><table>
+<tr><th>ID</th><th>Requirement</th><th>Implemented component</th><th>Status</th><th>Evidence</th></tr>
+<tr><td>B1</td><td>Market-price ingestion</td><td><code>bronze/ingest_prices.py</code></td><td><span class="badge b-part">PARTIAL</span></td><td>Uses Yahoo Finance, <b>not Stooq</b>. A Stooq fetcher exists only as a live probe (<code>tests/live/test_stooq.py</code>) and returned HTTP 404 in the test environment.</td></tr>
+<tr><td>B2</td><td>Trade CSV ingestion</td><td><code>bronze/ingest_trades.py</code></td><td><span class="badge b-impl">IMPLEMENTED</span></td><td>Header check, structural-corruption check, raw strings, insert-only MERGE on <code>record_hash</code>.</td></tr>
+<tr><td>B3</td><td>Delta storage</td><td><code>database/tables/**</code></td><td><span class="badge b-impl">IMPLEMENTED</span></td><td>All tables are <code>USING DELTA</code> in Unity Catalog <code>cibc</code>.</td></tr>
+<tr><td>B4</td><td>Bronze idempotency</td><td>MERGE on business key / <code>record_hash</code></td><td><span class="badge b-impl">IMPLEMENTED</span></td><td>Unit tests for the MERGE SQL. Delta history tests exist but are skipped locally <span class="badge b-nv">NOT VERIFIED</span>.</td></tr>
+<tr><td>S1</td><td>Schema enforcement / typing</td><td><code>silver/process_*.py</code>, Silver DDL</td><td><span class="badge b-impl">IMPLEMENTED</span></td><td><code>try_cast</code> to DATE / DECIMAL / INT / TIMESTAMP. <code>NOT NULL</code> columns in DDL.</td></tr>
+<tr><td>S2</td><td>Validation &amp; quarantine</td><td><code>*_rejects</code> tables, <code>common/rejects.py</code></td><td><span class="badge b-impl">IMPLEMENTED</span></td><td>Pipe-separated <code>rejection_reason</code>. Idempotent reject history.</td></tr>
+<tr><td>S3</td><td>Deduplication / versioning</td><td><code>prepare_trades</code>, <code>prepare_and_validate_prices</code></td><td><span class="badge b-impl">IMPLEMENTED</span></td><td>Window ranking by version / modified timestamp, or by ingestion timestamp for prices.</td></tr>
+<tr><td>S4</td><td>Data-quality metrics</td><td>Audit <code>issue_counts</code></td><td><span class="badge b-impl">IMPLEMENTED</span></td><td>Per-reason counts per task attempt.</td></tr>
+<tr><td>G1</td><td>Trade-to-price matching</td><td><code>gold/build_positions.py</code>, <code>calculate_daily_pnl.py</code></td><td><span class="badge b-impl">IMPLEMENTED</span></td><td>Exact-date close for valuation. Nearest-prior close for unpriced-trade detection.</td></tr>
+<tr><td>G2</td><td>Positions</td><td><code>cibc.gold.positions</code></td><td><span class="badge b-impl">IMPLEMENTED</span></td><td>Cumulative signed quantity per date, book, counterparty, instrument, currency.</td></tr>
+<tr><td>G3</td><td>Daily P&amp;L</td><td><code>cibc.gold.daily_pnl</code></td><td><span class="badge b-impl">IMPLEMENTED</span></td><td>Formula in <a href="#s19">§19</a>. Spark tests skipped locally.</td></tr>
+<tr><td>G4</td><td>Valuation breaks</td><td><code>gold/break_report.py</code></td><td><span class="badge b-impl">IMPLEMENTED</span></td><td>Break types <code>MISSING_MARKET_PRICE</code> and <code>MISSING_PNL_BASELINE</code>.</td></tr>
+<tr><td>O1</td><td>Parameterised execution</td><td>Job parameters <code>tickers</code>, <code>start_date</code>, <code>end_date</code>, <code>trade_input_path</code></td><td><span class="badge b-impl">IMPLEMENTED</span></td><td><code>jobs/resources/trade_pipeline.job.yml</code></td></tr>
+<tr><td>O2</td><td>Daily scheduling</td><td>Quartz <code>0 0 18 ? * MON-FRI</code>, America/New_York</td><td><span class="badge b-part">PARTIAL</span></td><td>Configured but <b>PAUSED</b>. No scheduled run has happened <span class="badge b-nv">NOT VERIFIED</span>.</td></tr>
+<tr><td>O3</td><td>Logging &amp; monitoring</td><td><code>audit.py</code>, notebook 02</td><td><span class="badge b-part">PARTIAL</span></td><td>Audit table and report notebook. No automated alerting.</td></tr>
+<tr><td>O4</td><td>Reproducible deployment</td><td><code>databricks.yml</code>, <code>scripts/deploy.sh</code></td><td><span class="badge b-impl">IMPLEMENTED</span></td><td><code>databricks bundle validate</code> passed on 2026-10-11, and the bundle was deployed.</td></tr>
+<tr><td>O5</td><td>User interface to run and review</td><td><code>notebooks/01_run_pipeline.py</code>, <code>02_pipeline_report.py</code></td><td><span class="badge b-impl">IMPLEMENTED</span></td><td>Synced to the workspace by the bundle. Helper logic unit-tested. Not yet run on Databricks <span class="badge b-nv">NOT VERIFIED</span>.</td></tr>
+</table></div>
+</section>
+
+<!-- 4 -->
+<section id="s4">
+<h2><span class="num">4</span>Non-functional requirements</h2>
+<div class="tablewrap"><table>
+<tr><th>Quality</th><th>How it is addressed</th><th>Status</th></tr>
+<tr><td>Idempotency</td><td>MERGE on business keys in every layer, reject history deduplicated, breaks keyed by run (<a href="#s29">§29</a>).</td><td><span class="badge b-impl">IMPLEMENTED</span></td></tr>
+<tr><td>Auditability</td><td>Audit row per task attempt, lineage columns, Delta history.</td><td><span class="badge b-impl">IMPLEMENTED</span></td></tr>
+<tr><td>Fail-safe behaviour</td><td>Tasks fail before writing when inputs are incomplete (missing prices, empty CSV, bad header, empty Silver).</td><td><span class="badge b-impl">IMPLEMENTED</span></td></tr>
+<tr><td>Concurrency safety</td><td><code>max_concurrent_runs: 1</code>. Notebook 01 refuses to start a second run while one is active.</td><td><span class="badge b-impl">IMPLEMENTED</span></td></tr>
+<tr><td>Maintainability</td><td>Small modules per task, wheel entry points, pure functions tested without Spark.</td><td><span class="badge b-impl">IMPLEMENTED</span></td></tr>
+<tr><td>Scalability</td><td>Spark transformations without driver collection of business data. However, Silver trades and Gold recompute the <b>full history</b> each run.</td><td><span class="badge b-part">PARTIAL</span></td></tr>
+<tr><td>Availability / SLA</td><td>Free market-data source, no SLA, no alerting.</td><td><span class="badge b-future">FUTURE ENHANCEMENT — NOT IMPLEMENTED</span></td></tr>
+<tr><td>Security</td><td>Unity Catalog grants template, no credentials in Git, CLI OAuth profiles.</td><td><span class="badge b-part">PARTIAL</span></td></tr>
+</table></div>
+</section>
+
+<!-- 5 -->
+<section id="s5">
+<h2><span class="num">5</span>Technology stack</h2>
+<div class="tablewrap"><table>
+<tr><th>Technology</th><th>Purpose in this solution</th><th>Why appropriate</th></tr>
+<tr><td>Databricks (serverless jobs)</td><td>Runs the six Python wheel tasks</td><td>Managed Spark, no cluster administration. Serverless environment <code>client: "2"</code>.</td></tr>
+<tr><td>PySpark</td><td>Validation, window ranking, joins, aggregation</td><td>Set-based transformations that stay on the cluster.</td></tr>
+<tr><td>Delta Lake</td><td>ACID tables, MERGE, history/time travel, CHECK constraints</td><td>MERGE gives idempotent upserts. History supports audit and reprocessing checks.</td></tr>
+<tr><td>Unity Catalog</td><td>Catalog <code>cibc</code>, schemas <code>bronze/silver/gold</code>, Volume <code>cibc.bronze.trade_files</code>, grants</td><td>Central governance and permissions.</td></tr>
+<tr><td>Databricks Workflows (Jobs)</td><td>Six-task DAG, parameters, schedule, retries of individual tasks via repair</td><td>Native orchestration with run history and a trigger type for each run.</td></tr>
+<tr><td>Python wheel (<code>trade_pipeline</code>)</td><td>Packages business logic with six console entry points</td><td>Versionable, testable code, separate from deployment config.</td></tr>
+<tr><td>Databricks Asset Bundles</td><td>Builds the wheel, deploys the Job and syncs files (including notebooks)</td><td>Repeatable deployment from the repository with one command.</td></tr>
+<tr><td>Git</td><td>Source control</td><td>No commits were found in the local repository at the time of writing <span class="badge b-nv">NOT VERIFIED</span>.</td></tr>
+<tr><td>SQL</td><td>DDL, migrations, grants, demo and report queries</td><td>Readable and reviewable by data and business users.</td></tr>
+<tr><td>Yahoo Finance via <code>yfinance</code> (≥0.2.40), pandas (≥2.0), numpy (&lt;2)</td><td>Price download and calendar arithmetic</td><td>Free and simple. <b>No SLA</b>, unofficial API.</td></tr>
+<tr><td>Databricks SDK (notebooks only)</td><td>Jobs API: resolve the Job, run-now, run status, run history</td><td>Pre-installed in Databricks notebooks. Not a wheel dependency.</td></tr>
+<tr><td>pytest</td><td>Local unit tests. Spark tests run only where PySpark and Java exist</td><td>Fast offline feedback.</td></tr>
+</table></div>
+<div class="callout assume"><b class="t">Scalability statement</b>The stack can scale, but this implementation is a proof of concept. It reprocesses full Silver trade history and full Gold history on each run, and its data volume is small (1,200 trade rows, 10 tickers). Its performance at production volumes has not been measured.</div>
+</section>
+
+<!-- 6 -->
+<section id="s6">
+<h2><span class="num">6</span>End-to-end solution architecture</h2>
+<figure>
+<svg viewBox="0 0 1000 580" role="img" aria-labelledby="d2t">
+<title id="d2t">Complete solution architecture with workspace, Unity Catalog, Job and consumers</title>
+<defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#1f6feb"/></marker></defs>
+<g font-family="Segoe UI,Arial" font-size="12">
+<rect x="10" y="80" width="150" height="70" rx="8" fill="#e7f0fd" stroke="#1f6feb"/><text x="85" y="108" text-anchor="middle" font-weight="700">Yahoo Finance</text><text x="85" y="126" text-anchor="middle" font-size="11">public HTTP API</text><text x="85" y="140" text-anchor="middle" font-size="11">(external)</text>
+<rect x="10" y="400" width="150" height="130" rx="8" fill="#f3f5f8" stroke="#5b6575"/><text x="85" y="425" text-anchor="middle" font-weight="700">Developer</text><text x="85" y="445" text-anchor="middle" font-size="11">Git repository</text><text x="85" y="462" text-anchor="middle" font-size="11">pip wheel → dist/</text><text x="85" y="479" text-anchor="middle" font-size="11">databricks bundle</text><text x="85" y="496" text-anchor="middle" font-size="11">validate / deploy</text><text x="85" y="513" text-anchor="middle" font-size="11">CLI OAuth profile</text>
+<rect x="180" y="10" width="810" height="560" rx="10" fill="none" stroke="#0b1f3a" stroke-dasharray="6 4"/><text x="195" y="30" font-weight="700" fill="#0b1f3a">Databricks workspace (serverless)</text>
+<rect x="200" y="42" width="770" height="66" rx="8" fill="#0b1f3a"/><text x="585" y="66" text-anchor="middle" fill="#fff" font-weight="700">Databricks Job "trade_pipeline" (dev: "[dev &lt;user&gt;] trade_pipeline")</text><text x="585" y="86" text-anchor="middle" fill="#cfd8e6" font-size="11">ingest_prices · process_prices · ingest_trades · process_trades · build_positions · calculate_daily_pnl — python_wheel_task, env client 2</text><text x="585" y="101" text-anchor="middle" fill="#cfd8e6" font-size="11">Schedule 0 0 18 ? * MON-FRI America/New_York (PAUSED) · max_concurrent_runs 1</text>
+<rect x="200" y="125" width="600" height="330" rx="8" fill="#fbfcfe" stroke="#1f6feb"/><text x="215" y="145" font-weight="700" fill="#1f6feb">Unity Catalog — catalog cibc</text>
+<rect x="215" y="155" width="180" height="285" rx="6" fill="#fbeedd" stroke="#b26b00"/><text x="305" y="175" text-anchor="middle" font-weight="700">schema bronze</text>
+<rect x="228" y="188" width="154" height="44" rx="5" fill="#fff" stroke="#b26b00"/><text x="305" y="207" text-anchor="middle">Volume trade_files</text><text x="305" y="223" text-anchor="middle" font-size="10">dirty_trades.csv</text>
+<rect x="228" y="250" width="154" height="34" rx="5" fill="#fff" stroke="#b26b00"/><text x="305" y="272" text-anchor="middle">market_prices</text>
+<rect x="228" y="300" width="154" height="34" rx="5" fill="#fff" stroke="#b26b00"/><text x="305" y="322" text-anchor="middle">trades</text>
+<rect x="410" y="155" width="180" height="285" rx="6" fill="#eef1f5" stroke="#5b6575"/><text x="500" y="175" text-anchor="middle" font-weight="700">schema silver</text>
+<rect x="423" y="200" width="154" height="34" rx="5" fill="#fff" stroke="#5b6575"/><text x="500" y="222" text-anchor="middle">market_prices</text>
+<rect x="423" y="244" width="154" height="34" rx="5" fill="#fdecea" stroke="#b42318"/><text x="500" y="266" text-anchor="middle">market_prices_rejects</text>
+<rect x="423" y="300" width="154" height="34" rx="5" fill="#fff" stroke="#5b6575"/><text x="500" y="322" text-anchor="middle">trades</text>
+<rect x="423" y="344" width="154" height="34" rx="5" fill="#fdecea" stroke="#b42318"/><text x="500" y="366" text-anchor="middle">trades_rejects</text>
+<rect x="605" y="155" width="180" height="285" rx="6" fill="#fff4e0" stroke="#b26b00"/><text x="695" y="175" text-anchor="middle" font-weight="700">schema gold</text>
+<rect x="618" y="200" width="154" height="34" rx="5" fill="#fff" stroke="#b26b00"/><text x="695" y="222" text-anchor="middle">positions</text>
+<rect x="618" y="250" width="154" height="34" rx="5" fill="#fff" stroke="#b26b00"/><text x="695" y="272" text-anchor="middle">daily_pnl</text>
+<rect x="618" y="300" width="154" height="34" rx="5" fill="#fff" stroke="#b26b00"/><text x="695" y="322" text-anchor="middle">valuation_breaks</text>
+<rect x="618" y="360" width="154" height="44" rx="5" fill="#0b1f3a"/><text x="695" y="379" text-anchor="middle" fill="#fff">pipeline_run_log</text><text x="695" y="395" text-anchor="middle" fill="#cfd8e6" font-size="10">audit (all tasks)</text>
+<rect x="815" y="125" width="155" height="330" rx="8" fill="#e6f4ea" stroke="#1a7f37"/><text x="892" y="145" text-anchor="middle" font-weight="700" fill="#1a7f37">Consumption</text>
+<rect x="828" y="160" width="130" height="70" rx="5" fill="#fff" stroke="#1a7f37"/><text x="893" y="182" text-anchor="middle">Notebook 01</text><text x="893" y="198" text-anchor="middle" font-size="10">run pipeline</text><text x="893" y="214" text-anchor="middle" font-size="10">Jobs API run-now</text>
+<rect x="828" y="245" width="130" height="70" rx="5" fill="#fff" stroke="#1a7f37"/><text x="893" y="267" text-anchor="middle">Notebook 02</text><text x="893" y="283" text-anchor="middle" font-size="10">pipeline report</text><text x="893" y="299" text-anchor="middle" font-size="10">read-only SQL</text>
+<rect x="828" y="330" width="130" height="70" rx="5" fill="#fff" stroke="#1a7f37"/><text x="893" y="352" text-anchor="middle">demo_queries.sql</text><text x="893" y="368" text-anchor="middle" font-size="10">SQL editor /</text><text x="893" y="384" text-anchor="middle" font-size="10">SQL warehouse</text>
+<rect x="200" y="475" width="770" height="80" rx="8" fill="#f3f5f8" stroke="#5b6575"/><text x="585" y="498" text-anchor="middle" font-weight="700">Bundle deployment root  /Workspace/Users/&lt;you&gt;/.bundle/trade_pipeline/dev</text><text x="585" y="518" text-anchor="middle" font-size="11">files/  (repository files incl. notebooks/01_run_pipeline, notebooks/02_pipeline_report)</text><text x="585" y="536" text-anchor="middle" font-size="11">artifacts/.internal/trade_pipeline-0.1.0-py3-none-any.whl  (Job environment dependency)</text>
+<g stroke="#1f6feb" stroke-width="2" fill="none" marker-end="url(#a2)">
+<path d="M160,115C190,115 200,265 226,267"/>
+<path d="M160,470H198"/>
+<path d="M585,475V457"/>
+<path d="M395,267H421"/><path d="M395,317H421"/>
+<path d="M590,217H616"/><path d="M590,317C600,317 605,270 616,267"/>
+<path d="M828,195C810,195 820,110 800,108"/>
+<path d="M828,280H787"/>
+</g>
+</g>
+</svg>
+<figcaption>Figure 2 — Components and boundaries. The arrows show the main data and control flows. Reject tables are shown in red.</figcaption>
+</figure>
+<div class="tablewrap"><table>
+<tr><th>Aspect</th><th>Implementation</th></tr>
+<tr><td>Data plane</td><td>Delta tables in Unity Catalog <code>cibc</code> (managed tables) and Volume <code>cibc.bronze.trade_files</code> for the trade CSV.</td></tr>
+<tr><td>Processing</td><td>Six <code>python_wheel_task</code>s in package <code>trade_pipeline</code>, on serverless compute.</td></tr>
+<tr><td>Storage</td><td>Bronze: raw strings. Silver: typed and validated, plus reject tables. Gold: positions, P&amp;L, breaks, audit.</td></tr>
+<tr><td>Orchestration</td><td>One Databricks Job with two parallel ingestion branches joined at <code>build_positions</code>.</td></tr>
+<tr><td>Consumption</td><td>Notebook 01 (trigger), notebook 02 (report), <code>docs/demo_queries.sql</code>.</td></tr>
+<tr><td>Security boundaries</td><td>External egress to Yahoo Finance from serverless compute. Unity Catalog privileges on catalog, schemas and Volume. Job permissions for running. CLI OAuth for deployment.</td></tr>
+</table></div>
+</section>
+
+<!-- 7 -->
+<section id="s7">
+<h2><span class="num">7</span>Data flow diagrams</h2>
+<h3>7.1 Bronze trade ingestion flow</h3>
+<figure>
+<svg viewBox="0 0 1000 150" role="img" aria-labelledby="d6t">
+<title id="d6t">Bronze trade ingestion steps</title>
+<defs><marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#1f6feb"/></marker></defs>
+<g font-family="Segoe UI,Arial" font-size="11.5" text-anchor="middle">
+<rect x="5" y="35" width="150" height="80" rx="8" fill="#e7f0fd" stroke="#1f6feb"/><text x="80" y="62">Read CSV header</text><text x="80" y="78">must equal the</text><text x="80" y="94">14 expected columns</text>
+<rect x="170" y="35" width="150" height="80" rx="8" fill="#e7f0fd" stroke="#1f6feb"/><text x="245" y="62">Read as STRING</text><text x="245" y="78">PERMISSIVE; empty or</text><text x="245" y="94">corrupt rows → fail</text>
+<rect x="335" y="35" width="160" height="80" rx="8" fill="#e7f0fd" stroke="#1f6feb"/><text x="415" y="62">record_hash =</text><text x="415" y="78">sha2(to_json(array(</text><text x="415" y="94">14 columns)), 256)</text>
+<rect x="510" y="35" width="150" height="80" rx="8" fill="#e7f0fd" stroke="#1f6feb"/><text x="585" y="62">dropDuplicates</text><text x="585" y="78">(record_hash)</text><text x="585" y="94">+ source_file, ts, run_id</text>
+<rect x="675" y="35" width="150" height="80" rx="8" fill="#fff4e0" stroke="#b26b00"/><text x="750" y="62">Guard: no Bronze</text><text x="750" y="78">row with NULL hash</text><text x="750" y="94">(migration applied)</text>
+<rect x="840" y="35" width="155" height="80" rx="8" fill="#e6f4ea" stroke="#1a7f37"/><text x="917" y="62">MERGE ON record_hash</text><text x="917" y="78">WHEN NOT MATCHED</text><text x="917" y="94">THEN INSERT only</text>
+<g stroke="#1f6feb" stroke-width="2" marker-end="url(#a6)"><path d="M155,75H168"/><path d="M320,75H333"/><path d="M495,75H508"/><path d="M660,75H673"/><path d="M825,75H838"/></g>
+</g></svg>
+<figcaption>Figure 3 — <code>ingest_trades</code>: no business validation happens in Bronze. Invalid trades are stored so Silver can quarantine them.</figcaption>
+</figure>
+<h3>7.2 Price flow</h3>
+<p><code>ingest_prices</code>: resolve tickers and dates → <code>yf.download(auto_adjust=False)</code> with up to 3 attempts (1 s, 2 s backoff) → extract <code>Close</code> → reject the batch if any requested ticker or expected NYSE session is missing → MERGE into <code>bronze.market_prices</code> on (<code>symbol</code>, <code>price_date</code>), updating only rows whose <code>close</code>, <code>currency</code> or <code>source_api</code> changed.</p>
+<p><code>process_prices</code>: scope Bronze to the requested tickers and dates → validate (8 rules) → rank duplicates by latest <code>ingestion_timestamp</code> then <code>run_id</code> → merge rejects → fail if any expected session has no accepted price → conditional MERGE into <code>silver.market_prices</code>.</p>
+<h3>7.3 Trade and Gold flow</h3>
+<p><code>process_trades</code> reads the <b>full</b> Bronze trade history, validates 25 rules, selects the latest version per <code>trade_id</code>, merges rejects, MERGEs accepted trades on <code>trade_id</code>, and deletes trade_ids whose latest version is unusable. <code>build_positions</code> and <code>calculate_daily_pnl</code> then recompute the full position and P&amp;L history from Silver and MERGE it into Gold with scoped deletes.</p>
+</section>
+
+<!-- 8 -->
+<section id="s8">
+<h2><span class="num">8</span>Databricks workflow architecture</h2>
+<figure>
+<svg viewBox="0 0 1000 250" role="img" aria-labelledby="d3t">
+<title id="d3t">Six-task Databricks Job DAG</title>
+<defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#1f6feb"/></marker></defs>
+<g font-family="Segoe UI,Arial" font-size="13" text-anchor="middle">
+<rect x="20" y="30" width="190" height="64" rx="10" fill="#fbeedd" stroke="#b26b00"/><text x="115" y="58" font-weight="700">ingest_prices</text><text x="115" y="78" font-size="11">→ bronze.market_prices</text>
+<rect x="265" y="30" width="190" height="64" rx="10" fill="#eef1f5" stroke="#5b6575"/><text x="360" y="58" font-weight="700">process_prices</text><text x="360" y="78" font-size="11">→ silver.market_prices(+rejects)</text>
+<rect x="20" y="150" width="190" height="64" rx="10" fill="#fbeedd" stroke="#b26b00"/><text x="115" y="178" font-weight="700">ingest_trades</text><text x="115" y="198" font-size="11">→ bronze.trades</text>
+<rect x="265" y="150" width="190" height="64" rx="10" fill="#eef1f5" stroke="#5b6575"/><text x="360" y="178" font-weight="700">process_trades</text><text x="360" y="198" font-size="11">→ silver.trades(+rejects)</text>
+<rect x="530" y="90" width="190" height="64" rx="10" fill="#fff4e0" stroke="#b26b00"/><text x="625" y="118" font-weight="700">build_positions</text><text x="625" y="138" font-size="11">→ gold.positions, breaks</text>
+<rect x="780" y="90" width="200" height="64" rx="10" fill="#fff4e0" stroke="#b26b00"/><text x="880" y="118" font-weight="700">calculate_daily_pnl</text><text x="880" y="138" font-size="11">→ gold.daily_pnl, breaks</text>
+<g stroke="#1f6feb" stroke-width="2.2" fill="none" marker-end="url(#a3)"><path d="M210,62H263"/><path d="M210,182H263"/><path d="M455,62C500,62 490,112 528,114"/><path d="M455,182C500,182 490,132 528,130"/><path d="M720,122H778"/></g>
+<text x="500" y="240" font-size="11" fill="#5b6575">Every task: --pipeline_run_id {{job.run_id}} --task_run_id {{task.run_id}} --task_execution_count {{task.execution_count}} → audit row in cibc.gold.pipeline_run_log</text>
+</g></svg>
+<figcaption>Figure 4 — DAG from <code>jobs/resources/trade_pipeline.job.yml</code>. The price and trade branches run in parallel.</figcaption>
+</figure>
+<div class="tablewrap"><table>
+<tr><th>Task</th><th>Module / entry point</th><th>Input</th><th>Output</th><th>Depends on</th><th>Parameters</th><th>Audit metrics</th></tr>
+<tr><td><b>ingest_prices</b></td><td><code>trade_pipeline.bronze.ingest_prices:main</code> / <code>ingest_prices</code></td><td>Yahoo Finance</td><td><code>cibc.bronze.market_prices</code></td><td>—</td><td>tickers, start_date, end_date</td><td>requested_tickers; input = output = rows downloaded; rows_written (logged)</td></tr>
+<tr><td><b>process_prices</b></td><td><code>silver.process_prices:main</code></td><td>bronze.market_prices</td><td>silver.market_prices, market_prices_rejects</td><td>ingest_prices</td><td>tickers, start_date, end_date</td><td>input = in-scope Bronze rows; output = accepted; rejected; duplicate; issue_counts</td></tr>
+<tr><td><b>ingest_trades</b></td><td><code>bronze.ingest_trades:main</code></td><td>CSV at <code>trade_input_path</code></td><td><code>cibc.bronze.trades</code></td><td>—</td><td>input_path</td><td>input = CSV rows; output = distinct records; duplicate = input − inserted; issue_counts DUPLICATE_IN_BATCH / ALREADY_INGESTED</td></tr>
+<tr><td><b>process_trades</b></td><td><code>silver.process_trades:main</code></td><td>bronze.trades (all history)</td><td>silver.trades, trades_rejects</td><td>ingest_trades</td><td>start_date, end_date (validated only, not used as a filter)</td><td>input = Bronze rows; output = accepted; rejected; duplicate; issue_counts</td></tr>
+<tr><td><b>build_positions</b></td><td><code>gold.build_positions:main</code></td><td>silver.trades, silver.market_prices</td><td>gold.positions, valuation_breaks</td><td>process_prices, process_trades</td><td>run ids only</td><td>input = trades + prices; output = position rows; issue_counts MISSING_MARKET_PRICE</td></tr>
+<tr><td><b>calculate_daily_pnl</b></td><td><code>gold.calculate_daily_pnl:main</code></td><td>gold.positions, silver.trades, silver.market_prices</td><td>gold.daily_pnl, valuation_breaks</td><td>build_positions</td><td>run ids only</td><td>input = positions + trades + prices; output = P&amp;L rows; issue_counts PNL_INCOMPLETE</td></tr>
+</table></div>
+<p><b>Why two parallel branches.</b> Prices and trades come from independent sources, so ingesting and validating them in parallel shortens the run. A failure in one branch does not stop the other branch from refreshing its Silver table. Gold needs both validated inputs, so <code>build_positions</code> waits for both Silver tasks. If either fails, Gold is skipped and the previous Gold state stays as it was.</p>
+<p><b>Error handling per task.</b> Each <code>main()</code> parses arguments, maps empty strings to “use default”, and calls <code>audit.run_audited_task</code>. That writes <code>STARTED</code>, then <code>SUCCESS</code> or <code>FAILED</code> with <code>error_type</code> and <code>error_message</code>, and re-raises the exception so the Databricks task fails visibly (<a href="#s22">§22</a>).</p>
+<p><b>Compute.</b> No cluster settings (test-enforced). One serverless environment <code>default_env</code> (<code>client: "2"</code>) with dependency <code>../../dist/*.whl</code>, which the bundle rewrites to the uploaded workspace path. <code>max_concurrent_runs: 1</code>. No task-level retries are configured, so a failed task is retried by repairing the run.</p>
+</section>
+
+<!-- 9 -->
+<section id="s9">
+<h2><span class="num">9</span>Repository and code structure</h2>
+<pre class="tree"><code>PnL_POC/
+├── databricks.yml                  # bundle: name, wheel artifact, workspace host, target dev (development mode)
+├── pyproject.toml                  # package trade_pipeline 0.1.0, deps, 6 console entry points, pytest config
+├── README.md
+├── jobs/resources/trade_pipeline.job.yml   # six-task Job, parameters, schedule, serverless environment
+├── src/trade_pipeline/
+│   ├── config.py                   # default tickers, lookback, table/source constants, instrument→symbol map
+│   ├── audit.py                    # pipeline_run_log STARTED/SUCCESS/FAILED records
+│   ├── bronze/ingest_prices.py     # Yahoo Finance download → bronze.market_prices MERGE
+│   ├── bronze/ingest_trades.py     # CSV → bronze.trades insert-only MERGE on record_hash
+│   ├── silver/process_prices.py    # validate/dedupe prices → silver.market_prices (+rejects)
+│   ├── silver/process_trades.py    # validate/version trades → silver.trades (+rejects)
+│   ├── gold/build_positions.py     # positions + MISSING_MARKET_PRICE breaks
+│   ├── gold/calculate_daily_pnl.py # daily P&amp;L + baseline / unpriced-trade breaks
+│   ├── gold/break_report.py        # retry-safe MERGE into valuation_breaks
+│   └── common/
+│       ├── market_calendar.py      # simplified NYSE session calendar (pandas CustomBusinessDay)
+│       ├── delta_stats.py          # parse MERGE/DELETE result rows (num_inserted_rows …)
+│       └── rejects.py              # idempotent reject-history MERGE
+├── database/
+│   ├── catalog.sql, bronze.sql, silver.sql, gold.sql, grants.sql
+│   ├── volumes/trade_files.sql
+│   ├── tables/bronze|silver|gold/*.sql     # DDL (CREATE TABLE IF NOT EXISTS)
+│   └── migrations/add_bronze_trades_record_hash.sql
+├── notebooks/
+│   ├── 01_run_pipeline.py          # widgets → Jobs API run-now, status polling
+│   └── 02_pipeline_report.py       # read-only report sections A–F
+├── scripts/
+│   ├── deploy.sh                   # build | validate | deploy | run
+│   └── generate_trades.py          # deterministic dirty CSV generator (seed 42)
+├── data/dirty_trades.csv           # 1,200 synthetic trades
+├── docs/                           # data_contracts.md, demo_queries.sql, this document
+└── tests/                          # pytest suite (+ tests/live network probes, excluded by default)</code></pre>
+<p class="small">Generated or ignored folders (<code>build/</code>, <code>dist/</code>, <code>*.egg-info</code>, <code>.databricks/</code>) are not part of the design. Note that <code>data_contracts.md</code> is in <code>docs/</code>, not in the repository root.</p>
+<details open><summary>Module responsibilities (inputs → outputs)</summary><div>
+<div class="tablewrap"><table>
+<tr><th>File</th><th>Responsibility</th><th>Inputs</th><th>Outputs</th></tr>
+<tr><td><code>config.py</code></td><td>Application constants: <code>DEFAULT_TICKERS</code> (10), <code>LOOKBACK_DAYS = 7</code>, <code>CURRENCY = "USD"</code>, <code>SOURCE_API</code>, <code>TRADE_CSV_PATH</code>, <code>INSTRUMENT_ID_TO_SYMBOL</code> (INS001–INS010)</td><td>—</td><td>Imported by tasks</td></tr>
+<tr><td><code>audit.py</code></td><td><code>run_audited_task</code> wrapper. MERGE of one record per (run_id, task_run_id)</td><td>metrics dict, exception</td><td><code>cibc.gold.pipeline_run_log</code></td></tr>
+<tr><td><code>bronze/ingest_prices.py</code></td><td>Ticker/date resolution, download with retry, shape checks, completeness, MERGE</td><td>Job params, Yahoo Finance</td><td><code>cibc.bronze.market_prices</code></td></tr>
+<tr><td><code>bronze/ingest_trades.py</code></td><td>Header and structure checks, <code>record_hash</code>, batch dedup, insert-only MERGE</td><td>CSV in Volume</td><td><code>cibc.bronze.trades</code></td></tr>
+<tr><td><code>silver/process_prices.py</code></td><td>Scope, validate, deduplicate, completeness, MERGE</td><td>bronze.market_prices</td><td>silver.market_prices, market_prices_rejects</td></tr>
+<tr><td><code>silver/process_trades.py</code></td><td>Validate, sign quantity, select version, MERGE, delete unusable ids</td><td>bronze.trades</td><td>silver.trades, trades_rejects</td></tr>
+<tr><td><code>gold/build_positions.py</code></td><td>Valuation calendar, cumulative positions, exact-date valuation, scoped MERGE</td><td>Silver trades and prices</td><td>gold.positions, valuation_breaks</td></tr>
+<tr><td><code>gold/calculate_daily_pnl.py</code></td><td>Book/symbol aggregation, previous close, P&amp;L formula, status, scoped MERGE</td><td>gold.positions, Silver trades and prices</td><td>gold.daily_pnl, valuation_breaks</td></tr>
+<tr><td><code>gold/break_report.py</code></td><td>Deduplicates breaks per (run, trade, instrument, date, type) and inserts only new ones</td><td>breaks DataFrame</td><td>gold.valuation_breaks</td></tr>
+<tr><td><code>common/market_calendar.py</code></td><td>NYSE sessions in a half-open range. <code>requested_sessions</code> excludes future dates</td><td>dates</td><td>list of dates</td></tr>
+<tr><td><code>common/delta_stats.py</code></td><td>Reads <code>num_inserted_rows</code>, <code>num_updated_rows</code>, <code>num_deleted_rows</code>, <code>num_affected_rows</code></td><td>MERGE/DELETE result row</td><td>counts</td></tr>
+<tr><td><code>common/rejects.py</code></td><td>Null-safe MERGE (<code>&lt;=&gt;</code>) inserting only unseen rejects</td><td>rejects DataFrame</td><td>reject tables</td></tr>
+<tr><td><code>jobs/resources/trade_pipeline.job.yml</code></td><td>Deployment config: DAG, parameters, schedule, environment</td><td>—</td><td>Job definition</td></tr>
+<tr><td><code>scripts/deploy.sh</code></td><td>Wraps <code>databricks bundle</code> commands. Target from <code>DATABRICKS_TARGET</code></td><td>CLI profile</td><td>deployed bundle / run</td></tr>
+<tr><td><code>notebooks/01_run_pipeline.py</code></td><td>Validated widgets, Job resolution, confirmed run-now, status polling</td><td>widgets, Jobs API</td><td>Job run</td></tr>
+<tr><td><code>notebooks/02_pipeline_report.py</code></td><td>Read-only report sections A–F</td><td>all tables, Jobs API</td><td>displays</td></tr>
+<tr><td><code>tests/*</code></td><td>Unit, mocked, Spark and Delta tests, packaging tests (<a href="#s28">§28</a>)</td><td>—</td><td>—</td></tr>
+</table></div>
+</div></details>
+<h3>How the wheel connects to the Job</h3>
+<pre><code># pyproject.toml
+[project.scripts]
+ingest_prices = "trade_pipeline.bronze.ingest_prices:main"
+...
+# trade_pipeline.job.yml
+- task_key: ingest_prices
+  python_wheel_task:
+    package_name: trade_pipeline
+    entry_point: ingest_prices
+    parameters: [--tickers, "{{job.parameters.tickers}}", ...]</code></pre>
+<p>The Databricks runtime installs the wheel into the serverless environment and calls the console entry point, which runs <code>main(argv)</code> with the task parameters. A packaging test checks that the six YAML entry points exactly match the six <code>[project.scripts]</code> entries.</p>
+<p><b>Why business logic is separate from deployment configuration.</b> Business logic changes go through code review and unit tests in the wheel. Orchestration choices (schedule, parameters, compute) change in YAML without touching business code. The same wheel can be deployed to several bundle targets.</p>
+</section>
+
+<!-- 10 -->
+<section id="s10">
+<h2><span class="num">10</span>Configuration and parameters</h2>
+<div class="tablewrap"><table>
+<tr><th>Parameter</th><th>Description</th><th>Default</th><th>Example</th><th>Used by</th></tr>
+<tr><td><code>tickers</code> (Job)</td><td>Comma-separated tickers. Uppercased and deduplicated</td><td><code>""</code> → AAPL, TSLA, NFLX, COIN, DIS, MSFT, AMZN, GOOG, META, PLTR</td><td><code>AAPL,MSFT</code></td><td>ingest_prices, process_prices</td></tr>
+<tr><td><code>start_date</code> (Job)</td><td>Inclusive <code>YYYY-MM-DD</code></td><td><code>""</code> → end_date − 7 days</td><td><code>2026-09-01</code></td><td>prices tasks. process_trades validates it only</td></tr>
+<tr><td><code>end_date</code> (Job)</td><td>Inclusive <code>YYYY-MM-DD</code></td><td><code>""</code> → <code>date.today()</code> of the runtime</td><td><code>2026-09-30</code></td><td>prices tasks. process_trades validates it only</td></tr>
+<tr><td><code>trade_input_path</code> (Job)</td><td>CSV path in the Volume</td><td><code>/Volumes/cibc/bronze/trade_files/dirty_trades.csv</code></td><td>same</td><td>ingest_trades (<code>--input_path</code>)</td></tr>
+<tr><td><code>--pipeline_run_id</code></td><td>Job run id, used as <code>run_id</code> everywhere</td><td><code>{{job.run_id}}</code></td><td>numeric id</td><td>all tasks</td></tr>
+<tr><td><code>--task_run_id</code></td><td>Task run id</td><td><code>{{task.run_id}}</code></td><td>—</td><td>all tasks (audit key)</td></tr>
+<tr><td><code>--task_execution_count</code></td><td>Attempt number. Audit <code>task_run_id</code> = <code>&lt;task_run_id&gt;-&lt;count&gt;</code></td><td><code>{{task.execution_count}}</code></td><td>1</td><td>all tasks</td></tr>
+<tr><td>Catalog / schemas / tables</td><td>Hard-coded constants (<code>cibc.bronze.*</code>, <code>cibc.silver.*</code>, <code>cibc.gold.*</code>)</td><td><code>cibc</code></td><td>—</td><td>all modules, notebooks. <b>Not parameterised</b></td></tr>
+<tr><td>Market-data provider</td><td><code>SOURCE_API = "yfinance.download"</code>, unadjusted closes</td><td>Yahoo Finance</td><td>—</td><td>ingest_prices</td></tr>
+<tr><td>Currency</td><td><code>CURRENCY = "USD"</code> (only accepted currency)</td><td>USD</td><td>—</td><td>prices and trades validation</td></tr>
+<tr><td>Download retries</td><td><code>MAX_DOWNLOAD_ATTEMPTS = 3</code>, <code>RETRY_BASE_SECONDS = 1</code> (1 s, 2 s)</td><td>3</td><td>—</td><td>ingest_prices</td></tr>
+<tr><td>Schedule</td><td>Quartz cron</td><td><code>0 0 18 ? * MON-FRI</code>, <b>PAUSED</b></td><td>—</td><td>Job</td></tr>
+<tr><td>Timezone</td><td>Schedule timezone</td><td><code>America/New_York</code></td><td>—</td><td>Job schedule only</td></tr>
+<tr><td>Concurrency</td><td><code>max_concurrent_runs</code></td><td>1</td><td>—</td><td>Job</td></tr>
+<tr><td>Bundle target</td><td><code>dev</code>, <code>mode: development</code>, default</td><td>dev</td><td><code>DATABRICKS_TARGET</code></td><td>deploy.sh, bundle</td></tr>
+<tr><td>Compute environment</td><td>Serverless <code>environment_key: default_env</code>, <code>client: "2"</code></td><td>—</td><td>—</td><td>all tasks</td></tr>
+<tr><td>Python dependencies</td><td><code>yfinance&gt;=0.2.40</code>, <code>pandas&gt;=2.0</code>, <code>numpy&lt;2</code>. Python ≥ 3.10</td><td>—</td><td>—</td><td>wheel</td></tr>
+<tr><td>Notebook widgets</td><td>01: start_date, end_date, tickers, job_name, job_id, wait_for_completion, confirm_run. 02: run_id, processing_date, job_name, job_id, monitor_days, schedule_active_since</td><td>see <a href="#s23">§23</a>/<a href="#s25">§25</a></td><td>—</td><td>notebooks</td></tr>
+</table></div>
+<div class="callout assume"><b class="t">Date defaults and timezone</b>Empty dates resolve to the window <code>[today − 7 days, today]</code>, where “today” is <code>date.today()</code> in the runtime environment. The code does <b>not</b> explicitly use America/New_York. The README states this is UTC on serverless <span class="badge b-nv">NOT VERIFIED</span>. At the 18:00 New York run time (22:00–23:00 UTC) both give the same calendar date.</div>
+<p><b>Configuration types.</b> <i>Runtime</i>: Job parameters and run-id templates. <i>Application</i>: <code>config.py</code> constants. <i>Environment</i>: workspace host and target in <code>databricks.yml</code>, CLI profile. <i>Deployment</i>: Job YAML (DAG, schedule, compute).</p>
+</section>
+
+<!-- 11 -->
+<section id="s11">
+<h2><span class="num">11</span>Data sources</h2>
+<h3>11.1 Market prices</h3>
+<div class="callout limit"><b class="t">Deviation from the challenge requirement</b>The challenge names <b>Stooq</b>. The implementation uses <b>Yahoo Finance</b> via <code>yfinance</code>, because the Stooq endpoint returned HTTP 404 in the test environment (<code>tests/live/test_stooq.py</code>). This does <b>not</b> strictly meet the named-provider requirement. The provider is isolated in <code>bronze/ingest_prices.py</code>: Silver and Gold use only symbol, date, close and currency.</div>
+<ul>
+<li><b>Tickers:</b> AAPL, TSLA, NFLX, COIN, DIS, MSFT, AMZN, GOOG, META, PLTR (instrument ids INS001–INS010).</li>
+<li><b>Range:</b> inclusive start/end. The provider's exclusive end is handled by requesting end + 1 day. A returned date outside the range fails the task.</li>
+<li><b>Close:</b> <code>auto_adjust=False</code> gives unadjusted closing prices, stored as strings in Bronze and as <code>DECIMAL(18,6)</code> in Silver.</li>
+<li><b>Currency:</b> set to USD by configuration. It is not read from the provider.</li>
+<li><b>Holidays / missing prices:</b> only expected NYSE sessions up to today are required. A missing expected (ticker, session) fails the task before writing. NaN closes are skipped and then reported as missing.</li>
+<li><b>Connectivity:</b> 3 attempts with exponential backoff. Type and value errors are not retried.</li>
+<li><b>Limitations:</b> unofficial API, no SLA, possible rate limits, no corporate-action handling.</li>
+</ul>
+<h3>11.2 Trades CSV</h3>
+<p><code>data/dirty_trades.csv</code> has 1,200 rows. It is generated deterministically by <code>scripts/generate_trades.py</code> (seed 42) for September 2026 trades and includes deliberately invalid rows, 10 exact duplicate rows and 10 corrected versions. Books: BOOK_TECH, BOOK_GROWTH, BOOK_HEDGE. Counterparties: CP001–CP010.</p>
+<div class="tablewrap"><table>
+<tr><th>#</th><th>Column</th><th>Silver type</th><th>Description</th><th>Silver validation</th></tr>
+<tr><td>1</td><td>trade_id</td><td>STRING</td><td>Business trade identifier (shared by all versions)</td><td>NULL_TRADE_ID</td></tr>
+<tr><td>2</td><td>counterparty_id</td><td>STRING</td><td>Counterparty (client)</td><td>NULL_CLIENT_ID</td></tr>
+<tr><td>3</td><td>instrument_id</td><td>STRING</td><td>Instrument code INS001–INS010</td><td>NULL_INSTRUMENT_ID, UNKNOWN_INSTRUMENT</td></tr>
+<tr><td>4</td><td>symbol</td><td>STRING</td><td>Ticker</td><td>INVALID_SYMBOL, INSTRUMENT_SYMBOL_MISMATCH</td></tr>
+<tr><td>5</td><td>side</td><td>(not stored)</td><td>BUY / SELL. Used to sign quantity</td><td>INVALID_SIDE</td></tr>
+<tr><td>6</td><td>quantity</td><td>DECIMAL(18,6)</td><td>Shares. Stored signed (SELL negative)</td><td>INVALID_QUANTITY, ZERO_QUANTITY, QUANTITY_SIDE_MISMATCH (BUY &lt; 0)</td></tr>
+<tr><td>7</td><td>price</td><td>DECIMAL(18,6)</td><td>Execution price</td><td>INVALID_PRICE, NONPOSITIVE_PRICE</td></tr>
+<tr><td>8</td><td>currency</td><td>STRING</td><td>Trade currency</td><td>INVALID_CURRENCY (must be USD)</td></tr>
+<tr><td>9</td><td>trade_timestamp</td><td>(not stored)</td><td>Execution time</td><td>INVALID_TRADE_TIMESTAMP, TRADE_DATE_TIMESTAMP_MISMATCH</td></tr>
+<tr><td>10</td><td>trade_date</td><td>DATE</td><td>Date the trade was executed</td><td>INVALID_TRADE_DATE, FUTURE_TRADE_DATE, NON_TRADING_TRADE_DATE</td></tr>
+<tr><td>11</td><td>settlement_date</td><td>DATE</td><td>Date cash and securities exchange (expected T+1)</td><td>INVALID_SETTLEMENT_DATE, INVALID_SETTLEMENT_SEQUENCE, INVALID_SETTLEMENT_CONVENTION</td></tr>
+<tr><td>12</td><td>book_id</td><td>STRING</td><td>Trading book</td><td>NULL_BOOK_ID</td></tr>
+<tr><td>13</td><td>version</td><td>INT</td><td>Version number of the trade record</td><td>INVALID_VERSION (unparseable or ≤ 0)</td></tr>
+<tr><td>14</td><td>modified_timestamp</td><td>TIMESTAMP</td><td>When this version was produced at source</td><td>INVALID_MODIFIED_TIMESTAMP, MODIFIED_BEFORE_TRADE_TIMESTAMP</td></tr>
+</table></div>
+<p><b>Date semantics.</b> <i>Trade date</i>: business date of execution, which drives positions. <i>Settlement date</i>: when the trade settles. It is validated as the next NYSE session but does <b>not</b> affect positions. <i>Modified timestamp</i>: source system time of a version, used as a version tie-breaker. <i>Ingestion timestamp</i>: when the platform first stored the raw record in Bronze.</p>
+</section>
+
+<!-- 12 -->
+<section id="s12">
+<h2><span class="num">12</span>Bronze layer technical design</h2>
+<p>Bronze stores source data as received, as strings, plus ingestion metadata (<code>source_api</code>/<code>source_file</code>, <code>ingestion_timestamp</code>, <code>run_id</code>). Business validation is left to Silver.</p>
+<h3>12.1 <code>cibc.bronze.market_prices</code> <span class="badge b-impl">IMPLEMENTED</span></h3>
+<p>Columns: symbol, price_date, close (all STRING), currency, source_api, ingestion_timestamp TIMESTAMP, run_id. The MERGE key is (<code>symbol</code>, <code>price_date</code>). A matched row is updated only when <code>close</code>, <code>currency</code> or <code>source_api</code> differs (null-safe <code>&lt;=&gt;</code>), and the update also replaces <code>ingestion_timestamp</code> and <code>run_id</code>. The previous value survives only in Delta history. The task refuses to run if the target already holds duplicate keys. Inserted, updated and unchanged counts are computed with a join before the MERGE.</p>
+<h3>12.2 <code>cibc.bronze.trades</code> — historical, insert-only <span class="badge b-impl">IMPLEMENTED</span> (code) <span class="badge b-nv">NOT VERIFIED</span> (live)</h3>
+<p>The current code uses an <b>insert-only Delta MERGE</b>. <code>INSERT OVERWRITE</code> is no longer used. Bronze trades is a <b>historical store of distinct raw records</b>, not a snapshot of the latest file.</p>
+<pre><code>RECORD_HASH_SQL = "sha2(to_json(array(trade_id, counterparty_id, ..., modified_timestamp)), 256)"
+
+MERGE INTO cibc.bronze.trades AS target
+USING _trade_pipeline_bronze_trades_source AS source
+ON target.record_hash = source.record_hash
+WHEN NOT MATCHED THEN INSERT (&lt;14 raw columns&gt;, record_hash, source_file, ingestion_timestamp, run_id)
+VALUES (source.…)</code></pre>
+<ul>
+<li><b>Hash:</b> all 14 raw columns in CSV order. A JSON array keeps NULLs and escapes delimiters, so NULL, empty strings and commas inside values hash differently. Metadata is excluded, so a re-sent file inserts nothing.</li>
+<li><b>Duplicates:</b> the batch is deduplicated with <code>dropDuplicates(["record_hash"])</code> before the MERGE. Records already in Bronze are skipped by the MERGE.</li>
+<li><b>Preservation:</b> rows are never updated or deleted, so the original <code>source_file</code>, <code>ingestion_timestamp</code> and <code>run_id</code> are kept. Trades missing from a later file remain.</li>
+<li><b>Safety guard:</b> the task fails if any Bronze row has a NULL <code>record_hash</code>, meaning the backfill migration has not been applied.</li>
+</ul>
+<div class="tablewrap"><table>
+<tr><th>Scenario (illustrative)</th><th>CSV</th><th>Result</th><th>Audit</th></tr>
+<tr><td>First ingestion</td><td>T1 v1, T2 v1</td><td>2 rows inserted with run_id = R1</td><td>input 2, output 2, duplicate 0</td></tr>
+<tr><td>Rerun, same file</td><td>T1 v1, T2 v1</td><td>0 rows inserted. Metadata still R1</td><td>input 2, output 2, duplicate 2 (ALREADY_INGESTED 2)</td></tr>
+<tr><td>Changed version</td><td>T1 v2, T2 v1</td><td>T1 v2 inserted (R3). T1 v1 kept</td><td>input 2, duplicate 1</td></tr>
+<tr><td>Duplicate rows in one file</td><td>T1, T1, T2</td><td>2 rows inserted</td><td>input 3, output 2, duplicate 1 (DUPLICATE_IN_BATCH 1)</td></tr>
+</table></div>
+<div class="callout limit"><b class="t">Migration dependency and legacy data</b>Existing tables need <code>database/migrations/add_bronze_trades_record_hash.sql</code> (ADD COLUMN, backfill, check). <code>CREATE TABLE IF NOT EXISTS</code> does not change an existing table. Rows left from the earlier <code>INSERT OVERWRITE</code> load keep their exact duplicates, so <code>record_hash</code> is unique only for rows written by the new MERGE. Before this change, Bronze trades held only the latest file, and older raw versions were visible only through Delta time travel.</div>
+</section>
+
+<!-- 13 -->
+<section id="s13">
+<h2><span class="num">13</span>Silver layer technical design</h2>
+<h3>13.1 Silver market prices</h3>
+<p>Typed columns: <code>price_date DATE</code>, <code>close DECIMAL(18,6) NOT NULL</code>. Lineage columns: <code>bronze_run_id</code>, <code>bronze_ingestion_timestamp</code>. Only Bronze rows for the requested tickers and dates are in scope; rows with a blank symbol or an unreadable date are also kept in scope so they can be quarantined. Rejection reasons: NULL_SYMBOL, EMPTY_SYMBOL, INVALID_PRICE_DATE, FUTURE_PRICE_DATE, UNEXPECTED_TRADING_DATE, INVALID_CLOSE, NONPOSITIVE_CLOSE, INVALID_CURRENCY, DUPLICATE_BUSINESS_KEY, AMBIGUOUS_DUPLICATE_KEY. Write: conditional MERGE on (symbol, price_date). Nothing is deleted.</p>
+<h3>13.2 Silver trades</h3>
+<ul>
+<li><b>Type casting:</b> <code>try_cast</code> to DECIMAL(18,6), DATE, INT and TIMESTAMP. A failed cast becomes a rejection reason.</li>
+<li><b>Required fields:</b> trade, counterparty, instrument and book ids must not be blank.</li>
+<li><b>Quantity and price:</b> quantity must be numeric and non-zero, and BUY must not be negative. Price must be &gt; 0. SELL with a positive quantity is negated. SELL with a negative quantity is kept as is.</li>
+<li><b>Dates:</b> the trade date must be an NYSE session and not in the future, and must equal the date of <code>trade_timestamp</code>. Settlement must be on or after the trade date and equal the next NYSE session (T+1).</li>
+<li><b>Currency:</b> USD only. <b>Instrument/symbol:</b> the instrument must be in the configured map and match its symbol.</li>
+<li><b>Reasons</b> are pipe-separated, so one row can carry several reasons.</li>
+<li><b>Write:</b> MERGE on <code>trade_id</code>, updating only when a business column changed. Then <code>DELETE</code> of trade_ids whose latest version is unusable. The two statements are not atomic but both are idempotent.</li>
+</ul>
+<h3>13.3 Rejects</h3>
+<p><code>cibc.silver.trades_rejects</code> stores all Bronze columns plus <code>rejection_reason</code> and <code>rejected_at</code>. <code>market_prices_rejects</code> stores the raw price columns. Both are written by <code>common/rejects.py</code>: a null-safe MERGE on the raw columns plus the reason, which inserts only rejects not seen before. Run metadata is excluded from the key, so reruns add nothing.</p>
+<pre><code>-- investigate rejected trades by reason (docs/demo_queries.sql #6)
+SELECT reason, COUNT(*) AS rejected_records
+FROM cibc.silver.trades_rejects
+LATERAL VIEW explode(split(rejection_reason, '[|]')) r AS reason
+GROUP BY reason ORDER BY rejected_records DESC;</code></pre>
+<div class="callout"><b class="t">Lineage semantics</b>A reject row's <code>run_id</code> is the <b>Bronze</b> run that ingested the raw record, not the run that rejected it. <code>silver.market_prices.run_id</code> is also copied from the Bronze row and equals <code>bronze_run_id</code>.</div>
+</section>
+
+<!-- 14 -->
+<section id="s14">
+<h2><span class="num">14</span>Gold layer technical design</h2>
+<h3>14.1 Positions (summary — details in <a href="#s18">§18</a>)</h3>
+<p>Inputs: <code>silver.trades</code>, <code>silver.market_prices</code>. Grain: (valuation_date, book_id, counterparty_id, instrument_id, currency). Closing position = cumulative signed quantity. Market value = closing quantity × same-day close.</p>
+<h3>14.2 Daily P&amp;L (summary — details in <a href="#s19">§19</a>)</h3>
+<p>Grain: (valuation_date, book_id, symbol, currency). Counterparty rows are summed first.</p>
+<h3>14.3 Price matching policy (as implemented)</h3>
+<div class="tablewrap"><table>
+<tr><th>Use</th><th>Policy</th></tr>
+<tr><td>Position valuation (<code>closing_price</code>, <code>market_value</code>)</td><td><b>Exact-date</b> close joined on symbol, date and currency. A missing close gives NULL.</td></tr>
+<tr><td>P&amp;L <code>current_close</code></td><td>Exact-date close. Missing gives <code>MISSING_CURRENT_PRICE</code> and NULL P&amp;L.</td></tr>
+<tr><td>P&amp;L <code>previous_close</code></td><td>Latest close <b>strictly before</b> the valuation date (previous available close, not necessarily the previous session). If none exists and the opening quantity ≠ 0, the result is <code>MISSING_BASELINE</code> and NULL P&amp;L.</td></tr>
+<tr><td>Unpriced-trade detection (<code>match_trades_to_prices_asof</code>)</td><td>Nearest close on or before the trade date (EXACT / PRIOR_CLOSE / MISSING_PRICE). Used only for breaks, never to value positions.</td></tr>
+</table></div>
+<h3>14.4 Valuation breaks</h3>
+<div class="tablewrap"><table>
+<tr><th>Written by</th><th>break_type</th><th>Condition</th><th>Key fields</th></tr>
+<tr><td>build_positions</td><td>MISSING_MARKET_PRICE</td><td>No exact-date close for a non-flat position or a day with trading activity</td><td>instrument_id, valuation_date</td></tr>
+<tr><td>calculate_daily_pnl</td><td>MISSING_MARKET_PRICE</td><td>current_close is NULL for a book/symbol row</td><td>instrument_id, valuation_date (books consolidated)</td></tr>
+<tr><td>calculate_daily_pnl</td><td>MISSING_PNL_BASELINE</td><td>Opening quantity ≠ 0 and no earlier close</td><td>instrument_id, valuation_date</td></tr>
+<tr><td>calculate_daily_pnl</td><td>MISSING_MARKET_PRICE</td><td>No close on or before the trade date</td><td>trade_id, instrument_id, trade_date</td></tr>
+</table></div>
+<p>Every break is inserted with <code>status = 'OPEN'</code>. There is no workflow to close or acknowledge a break <span class="badge b-future">FUTURE ENHANCEMENT — NOT IMPLEMENTED</span>. Breaks are history per run (key: run_id, trade_id, instrument_id, valuation_date, break_type). Because instrument-level keys are shared, when both Gold tasks raise the same instrument/date <code>MISSING_MARKET_PRICE</code>, the second insert is skipped and the first description is kept.</p>
+<div class="callout limit"><b class="t">Why NULL P&amp;L is never converted to zero</b>Zero would claim “no gain or loss”, which is a valid financial result. NULL means “cannot be valued”. Converting NULL to 0 would hide missing market data inside book totals. The report shows a total only when every row is valued, and shows the sum of complete rows separately.</div>
+</section>
+
+<!-- 15 -->
+<section id="s15">
+<h2><span class="num">15</span>Data model</h2>
+<figure>
+<svg viewBox="0 0 1000 600" role="img" aria-labelledby="d4t">
+<title id="d4t">Data model of Bronze, Silver and Gold tables</title>
+<defs><marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#5b6575"/></marker></defs>
+<g font-family="Segoe UI,Arial" font-size="11">
+<g><rect x="20" y="20" width="280" height="125" rx="6" fill="#fff" stroke="#b26b00"/><rect x="20" y="20" width="280" height="22" rx="6" fill="#b26b00"/><text x="30" y="36" fill="#fff" font-weight="700">cibc.bronze.market_prices</text>
+<text x="30" y="60">PK* symbol, price_date (STRING)</text><text x="30" y="76">close, currency, source_api (STRING)</text><text x="30" y="92">ingestion_timestamp TIMESTAMP</text><text x="30" y="108">run_id STRING</text><text x="30" y="128" fill="#5b6575">MERGE: update only changed values</text></g>
+<g><rect x="20" y="175" width="280" height="160" rx="6" fill="#fff" stroke="#b26b00"/><rect x="20" y="175" width="280" height="22" rx="6" fill="#b26b00"/><text x="30" y="191" fill="#fff" font-weight="700">cibc.bronze.trades</text>
+<text x="30" y="215">14 raw source columns (STRING)</text><text x="30" y="231">PK* record_hash STRING (MERGE key)</text><text x="30" y="247">source_file STRING</text><text x="30" y="263">ingestion_timestamp TIMESTAMP</text><text x="30" y="279">run_id STRING (first ingesting run)</text><text x="30" y="303" fill="#5b6575">insert-only history</text></g>
+<g><rect x="360" y="20" width="280" height="140" rx="6" fill="#fff" stroke="#5b6575"/><rect x="360" y="20" width="280" height="22" rx="6" fill="#5b6575"/><text x="370" y="36" fill="#fff" font-weight="700">cibc.silver.market_prices</text>
+<text x="370" y="60">id BIGINT IDENTITY</text><text x="370" y="76">BK symbol, price_date DATE</text><text x="370" y="92">close DECIMAL(18,6) · currency</text><text x="370" y="108">source_api · ingestion_timestamp · run_id</text><text x="370" y="124">bronze_run_id · bronze_ingestion_timestamp</text><text x="370" y="146" fill="#5b6575">CHECK close &gt; 0</text></g>
+<g><rect x="360" y="175" width="280" height="62" rx="6" fill="#fdecea" stroke="#b42318"/><text x="370" y="195" font-weight="700" fill="#b42318">cibc.silver.market_prices_rejects</text><text x="370" y="213">id · raw price columns · run_id (Bronze)</text><text x="370" y="229">rejection_reason · rejected_at</text></g>
+<g><rect x="360" y="255" width="280" height="160" rx="6" fill="#fff" stroke="#5b6575"/><rect x="360" y="255" width="280" height="22" rx="6" fill="#5b6575"/><text x="370" y="271" fill="#fff" font-weight="700">cibc.silver.trades</text>
+<text x="370" y="295">id BIGINT IDENTITY · BK trade_id</text><text x="370" y="311">counterparty_id · instrument_id · symbol · book_id</text><text x="370" y="327">quantity DECIMAL(18,6) signed · price</text><text x="370" y="343">trade_date · settlement_date DATE</text><text x="370" y="359">version INT · modified_timestamp</text><text x="370" y="375">bronze_run_id · bronze_ingestion_ts · source_file</text><text x="370" y="399" fill="#5b6575">one row per trade_id</text></g>
+<g><rect x="360" y="430" width="280" height="62" rx="6" fill="#fdecea" stroke="#b42318"/><text x="370" y="450" font-weight="700" fill="#b42318">cibc.silver.trades_rejects</text><text x="370" y="468">id · 17 Bronze columns · rejection_reason</text><text x="370" y="484">rejected_at</text></g>
+<g><rect x="700" y="20" width="280" height="125" rx="6" fill="#fff" stroke="#b26b00"/><rect x="700" y="20" width="280" height="22" rx="6" fill="#b26b00"/><text x="710" y="36" fill="#fff" font-weight="700">cibc.gold.positions</text>
+<text x="710" y="60">id IDENTITY · BK valuation_date, book_id,</text><text x="710" y="76">counterparty_id, instrument_id, currency</text><text x="710" y="92">daily_buy/sell/net_quantity</text><text x="710" y="108">closing_position_quantity · closing_price</text><text x="710" y="124">market_value · run_id · calculated_at</text></g>
+<g><rect x="700" y="160" width="280" height="140" rx="6" fill="#fff" stroke="#b26b00"/><rect x="700" y="160" width="280" height="22" rx="6" fill="#b26b00"/><text x="710" y="176" fill="#fff" font-weight="700">cibc.gold.daily_pnl</text>
+<text x="710" y="200">id IDENTITY · BK valuation_date, book_id,</text><text x="710" y="216">symbol, currency</text><text x="710" y="232">opening/buy/sell/closing_quantity</text><text x="710" y="248">previous_close · current_close · market_value</text><text x="710" y="264">unrealized_pnl_proxy · daily_pnl</text><text x="710" y="280">calculation_status · run_id · calculated_at</text></g>
+<g><rect x="700" y="315" width="280" height="95" rx="6" fill="#fff" stroke="#b26b00"/><rect x="700" y="315" width="280" height="22" rx="6" fill="#b26b00"/><text x="710" y="331" fill="#fff" font-weight="700">cibc.gold.valuation_breaks</text>
+<text x="710" y="355">id IDENTITY · run_id · trade_id</text><text x="710" y="371">instrument_id · valuation_date · break_type</text><text x="710" y="387">break_description · detected_at · status</text></g>
+<g><rect x="700" y="425" width="280" height="160" rx="6" fill="#fff" stroke="#0b1f3a"/><rect x="700" y="425" width="280" height="22" rx="6" fill="#0b1f3a"/><text x="710" y="441" fill="#fff" font-weight="700">cibc.gold.pipeline_run_log</text>
+<text x="710" y="465">id IDENTITY · key (run_id, task_run_id)</text><text x="710" y="481">task_name · run_date · started_at · finished_at</text><text x="710" y="497">status · source_table · target_table</text><text x="710" y="513">requested_tickers · input_rows · output_rows</text><text x="710" y="529">rejected_rows · duplicate_rows</text><text x="710" y="545">issue_counts MAP · error_type · error_message</text></g>
+<g stroke="#5b6575" stroke-width="1.6" fill="none" marker-end="url(#a4)">
+<path d="M300,80H358"/><path d="M300,95C330,95 330,205 358,205"/><path d="M300,250C330,250 330,330 358,330"/><path d="M300,270C330,270 330,460 358,460"/>
+<path d="M640,90C670,90 670,80 698,80"/><path d="M640,330C670,330 670,100 698,100"/><path d="M840,145V158"/><path d="M640,345C670,345 670,240 698,240"/><path d="M840,300V313"/>
+</g>
+<text x="20" y="580" fill="#5b6575">PK* = MERGE match key (no declared primary key) · BK = business key · IDENTITY = id BIGINT GENERATED ALWAYS AS IDENTITY</text>
+</g></svg>
+<figcaption>Figure 5 — Physical data model. Arrows show data dependencies. Delta does not enforce foreign keys.</figcaption>
+</figure>
+<div class="tablewrap"><table>
+<tr><th>Table</th><th>Purpose</th><th>Business / match key</th><th>Update strategy</th><th>Upstream</th></tr>
+<tr><td>cibc.bronze.market_prices</td><td>Raw daily closes</td><td>(symbol, price_date)</td><td>MERGE: insert, or update changed values</td><td>Yahoo Finance</td></tr>
+<tr><td>cibc.bronze.trades</td><td>Raw trade records history</td><td>record_hash</td><td>Insert-only MERGE</td><td>CSV in Volume</td></tr>
+<tr><td>cibc.silver.market_prices</td><td>Validated prices</td><td>(symbol, price_date)</td><td>Conditional MERGE, no delete</td><td>bronze.market_prices</td></tr>
+<tr><td>cibc.silver.market_prices_rejects</td><td>Quarantined prices</td><td>raw columns + reason</td><td>Insert-only MERGE</td><td>bronze.market_prices</td></tr>
+<tr><td>cibc.silver.trades</td><td>Latest valid version per trade</td><td>trade_id</td><td>Conditional MERGE + DELETE of unusable ids</td><td>bronze.trades</td></tr>
+<tr><td>cibc.silver.trades_rejects</td><td>Quarantined trade records</td><td>14 raw columns + source_file + reason</td><td>Insert-only MERGE</td><td>bronze.trades</td></tr>
+<tr><td>cibc.gold.positions</td><td>Daily positions</td><td>(valuation_date, book_id, counterparty_id, instrument_id, currency)</td><td>MERGE + scoped DELETE</td><td>Silver trades, prices</td></tr>
+<tr><td>cibc.gold.daily_pnl</td><td>Daily P&amp;L by book/symbol</td><td>(valuation_date, book_id, symbol, currency)</td><td>MERGE + scoped DELETE</td><td>positions, Silver</td></tr>
+<tr><td>cibc.gold.valuation_breaks</td><td>Valuation exceptions per run</td><td>(run_id, trade_id, instrument_id, valuation_date, break_type)</td><td>Insert-only MERGE</td><td>Gold tasks</td></tr>
+<tr><td>cibc.gold.pipeline_run_log</td><td>Task-attempt audit</td><td>(run_id, task_run_id)</td><td>MERGE (STARTED → SUCCESS/FAILED)</td><td>all tasks</td></tr>
+</table></div>
+<p><b>Identity columns vs business keys.</b> Silver and Gold tables (and the audit log) have <code>id BIGINT GENERATED ALWAYS AS IDENTITY</code>, which is a surrogate row id generated by Delta and never written by the pipeline. It is stable for joins and debugging but has no business meaning. Every MERGE matches on the <b>business key</b>, so reruns update the same logical row instead of creating new ids. Bronze tables have no identity column.</p>
+</section>
+
+<!-- 16 -->
+<section id="s16">
+<h2><span class="num">16</span>Data quality</h2>
+<div class="tablewrap"><table>
+<tr><th>Control</th><th>Layer</th><th>Behaviour on failure</th></tr>
+<tr><td>CSV header equals the 14 expected columns. Empty file. Structurally corrupt rows</td><td>Bronze trades</td><td>Task fails, nothing written</td></tr>
+<tr><td>Requested tickers present. Expected sessions present. Returned dates within range. Finite closes. Unique keys</td><td>Bronze prices</td><td>Task fails, nothing written</td></tr>
+<tr><td>8 price rules + duplicate / ambiguity checks</td><td>Silver prices</td><td>Row quarantined</td></tr>
+<tr><td>Accepted prices cover every expected session per ticker</td><td>Silver prices</td><td>Task fails before the Silver write (rejects already merged)</td></tr>
+<tr><td>25 trade rules + version rules</td><td>Silver trades</td><td>Row quarantined. Trade removed from Silver if its latest version is unusable</td></tr>
+<tr><td>Zero accepted trades</td><td>Silver trades</td><td>Task fails, Silver unchanged</td></tr>
+<tr><td>Delta CHECK constraints (close &gt; 0. Trade quantity ≠ 0, price &gt; 0, version &gt; 0, settlement ≥ trade date)</td><td>Silver</td><td>Write fails</td></tr>
+<tr><td>Duplicate keys in Silver inputs, unknown instrument in positions</td><td>Gold</td><td>Task fails</td></tr>
+<tr><td>Missing prices / baselines</td><td>Gold</td><td>NULL values + valuation break</td></tr>
+</table></div>
+<div class="callout limit"><b class="t">Documentation vs repository discrepancy</b>The constraint scripts <code>database/tables/silver/trades_constraints.sql</code> and <code>market_prices_constraints.sql</code>, and <code>database/migrations/add_silver_lineage_columns.sql</code>, are referenced by the README and by tests but are <b>missing from the current working tree</b>. Six local tests fail for this reason. When they were last inspected, the price constraint script contained only <code>close &gt; 0</code>, while <code>docs/data_contracts.md</code> also claims <code>currency = 'USD'</code>. Whether these constraints exist on the live tables is <span class="badge b-nv">NOT VERIFIED</span>.</div>
+</section>
+
+<!-- 17 -->
+<section id="s17">
+<h2><span class="num">17</span>Trade versioning and deduplication</h2>
+<ol>
+<li>Exact copies of all 14 raw columns: the first copy is kept and the others are rejected as <code>DUPLICATE_TRADE_VERSION</code>. With insert-only Bronze this now affects only legacy rows.</li>
+<li>Rank each <code>trade_id</code> by <code>version</code> DESC, then <code>modified_timestamp</code> DESC.</li>
+<li>If the top rank has several different payloads, the trade is ambiguous and every top row is rejected as <code>AMBIGUOUS_TRADE_VERSION</code>.</li>
+<li>If the top version is invalid, or any version is unparseable, the trade is unusable and the older valid versions are rejected as <code>SUPERSEDED_BY_INVALID_LATEST_VERSION</code>.</li>
+<li>Otherwise the top row is accepted and the older valid versions are rejected as <code>DUPLICATE_TRADE_VERSION</code>.</li>
+<li>Trade_ids that appear in Bronze but have no accepted version are <b>deleted</b> from Silver, so they never reach Gold.</li>
+</ol>
+<div class="tablewrap"><table>
+<tr><th>Example (illustrative)</th><th>Bronze rows</th><th>Silver result</th><th>Rejects</th></tr>
+<tr><td>Correction</td><td>TRD1 v1 qty 10 · TRD1 v2 qty 12 (later modified_ts)</td><td>TRD1 v2, qty 12</td><td>v1 → DUPLICATE_TRADE_VERSION</td></tr>
+<tr><td>Bad correction</td><td>TRD2 v1 valid · TRD2 v2 price "bad"</td><td>No row. TRD2 removed</td><td>v2 → INVALID_PRICE; v1 → SUPERSEDED_BY_INVALID_LATEST_VERSION</td></tr>
+<tr><td>Conflict</td><td>TRD3 v2 qty 10 · TRD3 v2 qty 11 (same modified_ts)</td><td>No row</td><td>both → AMBIGUOUS_TRADE_VERSION</td></tr>
+<tr><td>Re-sent changed attributes, same version and timestamp</td><td>TRD4 v1 price 150.5 (run 1) · TRD4 v1 price 151 (run 2)</td><td>No row</td><td>both → AMBIGUOUS_TRADE_VERSION</td></tr>
+</table></div>
+<div class="callout assume"><b class="t">Behaviour change with historical Bronze</b>Before, a re-sent file simply replaced the old snapshot. Now the old and new records exist side by side, so a change made without a new <code>version</code> or <code>modified_timestamp</code> makes the trade ambiguous and quarantines it. This is the safe default. Letting the later ingestion win is a business decision that has not been taken.</div>
+</section>
+
+<!-- 18 -->
+<section id="s18">
+<h2><span class="num">18</span>Position calculation</h2>
+<ul>
+<li><b>Input:</b> every accepted Silver trade (full history, not filtered by Job dates). Signed quantity: BUY &gt; 0, SELL &lt; 0.</li>
+<li><b>Daily activity</b> per (trade_date, book, counterparty, instrument, currency): <code>daily_buy_quantity</code> = sum of positive quantities, <code>daily_sell_quantity</code> = sum of absolute negative quantities, <code>daily_net_quantity</code> = signed sum.</li>
+<li><b>Timeline:</b> every NYSE session from the first trade date to the later of the last trade date and the last price date, capped at today, plus every trade date. Each position key starts at its first trade date.</li>
+<li><b>Closing position</b> = running sum of <code>daily_net_quantity</code>, so positions carry forward on days without trades. The opening position of a day is the previous closing position.</li>
+<li><b>Valuation:</b> <code>market_value = closing_position_quantity × closing_price</code> (exact-date close, mapped from instrument_id to symbol through the config map). A missing price gives NULL; quantities are never changed.</li>
+<li><b>Historical corrections:</b> the whole history is recomputed each run and MERGEd, so a back-dated correction updates every affected later date. Rows are deleted only for instruments in the source and dates on or after the source's first date.</li>
+</ul>
+<div class="callout limit"><b class="t">Gap</b>An instrument that disappears from Silver entirely is outside the delete scope, so its old Gold rows remain and need manual cleanup.</div>
+<pre><code>-- book × instrument positions without double counting (counterparty rows summed)
+SELECT valuation_date, book_id, instrument_id, SUM(closing_position_quantity) AS closing_quantity
+FROM cibc.gold.positions
+WHERE valuation_date = (SELECT MAX(valuation_date) FROM cibc.gold.positions)
+GROUP BY valuation_date, book_id, instrument_id;</code></pre>
+</section>
+
+<!-- 19 -->
+<section id="s19">
+<h2><span class="num">19</span>Daily P&amp;L calculation</h2>
+<div class="formula">daily_pnl = opening_quantity × (current_close − previous_close)
+          + Σ signed_trade_quantity × (current_close − trade_price)
+
+implemented as:
+  price_move_pnl = opening_quantity × (current_close − previous_close)
+  trade_day_pnl  = daily_net_quantity × current_close − Σ(quantity × price)
+  daily_pnl      = trade_day_pnl                     if opening_quantity = 0
+                 = price_move_pnl + trade_day_pnl    otherwise
+                 = NULL  if current_close IS NULL                        (MISSING_CURRENT_PRICE)
+                 = NULL  if opening_quantity ≠ 0 AND previous_close NULL (MISSING_BASELINE)</div>
+<div class="tablewrap"><table>
+<tr><th>Component</th><th>Definition</th></tr>
+<tr><td>opening_quantity</td><td>closing_quantity − daily_net_quantity (previous day's closing position)</td></tr>
+<tr><td>closing_quantity</td><td>Sum of counterparty closing positions for the book/symbol</td></tr>
+<tr><td>current_close</td><td>Exact-date close</td></tr>
+<tr><td>previous_close</td><td>Latest close before the valuation date</td></tr>
+<tr><td>signed_trade_quantity / trade_price</td><td>Silver quantity (BUY +, SELL −) and execution price of the day's trades</td></tr>
+<tr><td>market_value</td><td>closing_quantity × current_close</td></tr>
+<tr><td>unrealized_pnl_proxy</td><td>market_value − cumulative signed trade cash flow. A cumulative mark-to-market proxy that includes realised effects. <b>Not</b> true unrealised P&amp;L</td></tr>
+<tr><td>calculation_status</td><td>COMPLETE · MISSING_CURRENT_PRICE · MISSING_BASELINE</td></tr>
+</table></div>
+<h3>Worked example (illustrative numbers, one book/symbol)</h3>
+<div class="tablewrap"><table>
+<tr><th>Day</th><th>Trades</th><th>Opening</th><th>Prev close</th><th>Close</th><th>Calculation</th><th>Daily P&amp;L</th></tr>
+<tr><td>1</td><td>BUY 10 @ 100</td><td>0</td><td>—</td><td>105</td><td>10 × (105 − 100)</td><td>+50</td></tr>
+<tr><td>2</td><td>BUY 5 @ 106</td><td>10</td><td>105</td><td>108</td><td>10 × (108 − 105) + 5 × (108 − 106)</td><td>+40</td></tr>
+<tr><td>3</td><td>SELL 15 @ 107 (qty −15)</td><td>15</td><td>108</td><td>104</td><td>15 × (104 − 108) + (−15) × (104 − 107)</td><td>−15</td></tr>
+<tr><td>Short</td><td>none</td><td>−20</td><td>50</td><td>52</td><td>−20 × (52 − 50)</td><td>−40</td></tr>
+</table></div>
+<p>Day 3: the long position loses 60 from the price fall. Selling at 107, above the 104 close, recovers 45. A <b>short</b> position (negative quantity) loses money when the price rises, and the formula handles this through the sign. A BUY adds to the position and gains when the close is above its execution price. A SELL gains when the close is below its execution price.</p>
+</section>
+
+<!-- 20 -->
+<section id="s20">
+<h2><span class="num">20</span>Data lineage</h2>
+<figure>
+<svg viewBox="0 0 1000 300" role="img" aria-labelledby="d5t">
+<title id="d5t">Data lineage from sources to Gold</title>
+<defs><marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#1f6feb"/></marker></defs>
+<g font-family="Segoe UI,Arial" font-size="11" text-anchor="middle">
+<rect x="10" y="30" width="160" height="80" rx="8" fill="#e7f0fd" stroke="#1f6feb"/><text x="90" y="55" font-weight="700">Trades CSV</text><text x="90" y="73">file path</text><text x="90" y="89">(Volume)</text>
+<rect x="210" y="30" width="180" height="80" rx="8" fill="#fbeedd" stroke="#b26b00"/><text x="300" y="55" font-weight="700">bronze.trades</text><text x="300" y="73">source_file · record_hash</text><text x="300" y="89">ingestion_timestamp · run_id</text>
+<rect x="430" y="30" width="180" height="80" rx="8" fill="#eef1f5" stroke="#5b6575"/><text x="520" y="55" font-weight="700">silver.trades</text><text x="520" y="73">bronze_run_id · source_file</text><text x="520" y="89">bronze_ingestion_timestamp</text>
+<rect x="650" y="90" width="150" height="90" rx="8" fill="#fff4e0" stroke="#b26b00"/><text x="725" y="117" font-weight="700">gold.positions</text><text x="725" y="135">run_id = last run</text><text x="725" y="151">that changed the row</text><text x="725" y="167">(aggregated, no trade_id)</text>
+<rect x="830" y="90" width="160" height="90" rx="8" fill="#fff4e0" stroke="#b26b00"/><text x="910" y="117" font-weight="700">gold.daily_pnl</text><text x="910" y="135">run_id = last change</text><text x="910" y="151">book × symbol</text><text x="910" y="167">(aggregated)</text>
+<rect x="10" y="190" width="160" height="80" rx="8" fill="#e7f0fd" stroke="#1f6feb"/><text x="90" y="215" font-weight="700">Yahoo Finance</text><text x="90" y="233">source_api =</text><text x="90" y="249">yfinance.download</text>
+<rect x="210" y="190" width="180" height="80" rx="8" fill="#fbeedd" stroke="#b26b00"/><text x="300" y="215" font-weight="700">bronze.market_prices</text><text x="300" y="233">ingestion_timestamp</text><text x="300" y="249">run_id (last change)</text>
+<rect x="430" y="190" width="180" height="80" rx="8" fill="#eef1f5" stroke="#5b6575"/><text x="520" y="215" font-weight="700">silver.market_prices</text><text x="520" y="233">run_id = bronze_run_id</text><text x="520" y="249">bronze_ingestion_timestamp</text>
+<g stroke="#1f6feb" stroke-width="2" fill="none" marker-end="url(#a5)"><path d="M170,70H208"/><path d="M390,70H428"/><path d="M610,70C640,70 630,120 648,122"/><path d="M170,230H208"/><path d="M390,230H428"/><path d="M610,230C640,230 630,160 648,158"/><path d="M800,135H828"/></g>
+</g></svg>
+<figcaption>Figure 6 — Lineage columns available at each step.</figcaption>
+</figure>
+<p><b>Tracing a P&amp;L figure back to its sources:</b> (1) Find the <code>daily_pnl</code> row (date, book, symbol). (2) The positions for the same date, book and instrument give the per-counterparty quantities. (3) The trades are <code>silver.trades</code> rows for that book and symbol with <code>trade_date</code> on or before the date. (4) Each trade's <code>bronze_run_id</code>, <code>source_file</code> and <code>bronze_ingestion_timestamp</code> identify the Bronze record. (5) Prices come from <code>silver.market_prices</code> for the symbol and date, with <code>bronze_run_id</code> pointing to the Bronze price row.</p>
+<div class="callout limit"><b class="t">Lineage limits</b>Gold tables are aggregates and hold no foreign key to individual trades or prices, so there is <b>no row-level lineage</b> from Gold. Lineage is reconstructed by business keys. Gold <code>run_id</code> marks the run that last <i>changed</i> a row, not the latest run. Bronze price rows keep only the latest value; earlier values are in Delta history.</div>
+</section>
+
+<!-- 21 -->
+<section id="s21">
+<h2><span class="num">21</span>Audit logging and monitoring</h2>
+<p><code>audit.run_audited_task</code> writes a <code>STARTED</code> row, runs the task, records its metrics, then marks it <code>SUCCESS</code>. Any exception produces <code>FAILED</code> with <code>error_type</code> and <code>error_message</code> and is re-raised. If the business step succeeds but writing the audit row fails, the task is still failed, so a task never finishes without an audit record. Rows are MERGEd on (<code>run_id</code>, <code>task_run_id</code>). <code>task_run_id</code> = <code>&lt;task run id&gt;-&lt;execution count&gt;</code>, so a repaired attempt gets its own row.</p>
+<div class="tablewrap"><table>
+<tr><th>Column</th><th>Meaning</th></tr>
+<tr><td>run_id</td><td>Databricks Job run id (<code>{{job.run_id}}</code>). The six tasks of one run share it</td></tr>
+<tr><td>task_run_id, task_name</td><td>Attempt identity and task</td></tr>
+<tr><td>run_date</td><td>UTC date of the task start</td></tr>
+<tr><td>started_at, finished_at, status</td><td>STARTED / SUCCESS / FAILED</td></tr>
+<tr><td>source_table, target_table</td><td>Declared input and output</td></tr>
+<tr><td>input_rows</td><td>Source records examined (definition varies per task, see <a href="#s8">§8</a>)</td></tr>
+<tr><td>output_rows</td><td>Valid records produced (not necessarily written)</td></tr>
+<tr><td>rejected_rows, duplicate_rows</td><td>Records rejected / classified as duplicates</td></tr>
+<tr><td>issue_counts</td><td>MAP of reason → count. A row with several reasons is counted under each</td></tr>
+<tr><td>error_type, error_message</td><td>Exception details for FAILED</td></tr>
+</table></div>
+<div class="tablewrap"><table>
+<tr><th>Concept</th><th>Where to find it</th></tr>
+<tr><td>Records read</td><td><code>input_rows</code></td></tr>
+<tr><td>Records inserted / updated / deleted</td><td>Returned by tasks and written to the task log, but <b>not stored</b> in the audit table. Exceptions: Bronze trades inserted = <code>input_rows − duplicate_rows</code>; breaks per run = rows in <code>valuation_breaks</code> for that run_id. Otherwise use <code>DESCRIBE HISTORY</code></td></tr>
+<tr><td>Records rejected</td><td><code>rejected_rows</code> (this run). New reject-history rows are not stored</td></tr>
+<tr><td>Existing table totals</td><td><code>COUNT(*)</code> of the table (notebook 02 section A, demo query 11)</td></tr>
+</table></div>
+<div class="callout limit"><b class="t">Known audit gaps</b>A failed attempt stores <code>0</code> (not NULL) for unknown metrics. Runs that fail before any task code runs (for example, the wheel fails to install) leave no audit rows and are visible only in Jobs run history. Insert, update and delete counts are not stored.</div>
+<pre><code>SELECT task_name, status, started_at, finished_at, input_rows, output_rows,
+       rejected_rows, duplicate_rows, issue_counts, error_message
+FROM cibc.gold.pipeline_run_log ORDER BY started_at DESC LIMIT 12;</code></pre>
+</section>
+
+<!-- 22 -->
+<section id="s22">
+<h2><span class="num">22</span>Error handling</h2>
+<div class="tablewrap"><table>
+<tr><th>Situation</th><th>Handling</th><th>Effect on data</th></tr>
+<tr><td>Invalid parameters (date format, start &gt; end, empty ticker list)</td><td><code>ValueError</code> → FAILED audit row → task fails</td><td>Nothing written</td></tr>
+<tr><td>Provider error / empty response</td><td>Up to 3 attempts, then <code>RuntimeError</code></td><td>Bronze prices unchanged</td></tr>
+<tr><td>Incomplete or ambiguous provider response</td><td><code>ValueError</code> listing missing pairs</td><td>Bronze prices unchanged</td></tr>
+<tr><td>CSV unreadable / bad header / empty / corrupt</td><td><code>RuntimeError</code> / <code>ValueError</code></td><td>Bronze trades unchanged</td></tr>
+<tr><td>Bronze trades not migrated (NULL or missing <code>record_hash</code>)</td><td>Guard query fails</td><td>Bronze trades unchanged. Trade branch and Gold skipped</td></tr>
+<tr><td>Invalid business records</td><td>Quarantined, not exceptions</td><td>Reject tables</td></tr>
+<tr><td>Missing expected Silver price sessions</td><td>Task fails after merging rejects</td><td>Silver prices unchanged</td></tr>
+<tr><td>Silver trades MERGE succeeds, DELETE fails</td><td>Task fails. Rerun completes the delete</td><td>Temporary inconsistency, made safe by idempotency</td></tr>
+<tr><td>Missing prices in Gold</td><td>No exception: NULL values + breaks</td><td>Gold written</td></tr>
+<tr><td>Audit write fails after success</td><td>Task failed deliberately</td><td>Business data written, run marked failed</td></tr>
+<tr><td>Upstream task fails</td><td>Databricks skips the dependent tasks</td><td>Gold keeps its previous state</td></tr>
+</table></div>
+</section>
+
+<!-- 23 -->
+<section id="s23">
+<h2><span class="num">23</span>Manual execution</h2>
+<h3>23.1 Workflows UI</h3>
+<ol>
+<li>Open <b>Workflows → Jobs</b> and select <code>[dev &lt;user&gt;] trade_pipeline</code>. In development mode the bundle adds this prefix.</li>
+<li>Choose <b>Run now with different parameters</b>. Set <code>start_date</code>, <code>end_date</code> (YYYY-MM-DD) and optionally <code>tickers</code>. Leave <code>trade_input_path</code> at its default.</li>
+<li>Follow the run graph and open a task to see its log. Repair failed tasks with <b>Repair run</b>.</li>
+</ol>
+<h3>23.2 CLI</h3>
+<pre><code>./scripts/deploy.sh run --params start_date=2026-09-01,end_date=2026-09-30
+# equivalent
+databricks bundle run trade_pipeline -t dev --params start_date=2026-09-01,end_date=2026-09-30</code></pre>
+<h3>23.3 Notebook <code>01_run_pipeline</code> <span class="badge b-impl">IMPLEMENTED</span> <span class="badge b-nv">NOT VERIFIED on Databricks</span></h3>
+<p>Location after deployment: <code>/Workspace/Users/&lt;you&gt;/.bundle/trade_pipeline/dev/files/notebooks/01_run_pipeline</code>.</p>
+<ol>
+<li>Attach serverless compute. Set the widgets <code>start_date</code>, <code>end_date</code> and <code>tickers</code> (blank means the Job default).</li>
+<li><b>Run all</b> with <code>confirm_run = NO</code>. This checks the inputs, resolves the Job by name (exact name or the <code>[dev …]</code> prefix, or a <code>job_id</code> override) and prints the schedule without submitting anything.</li>
+<li>Set <code>confirm_run = YES</code> and run again. If a run is already active, the notebook monitors it instead of starting another. Otherwise it calls <code>jobs.run_now</code> with an idempotency token. The confirmation widget is then removed, so a re-run cannot submit twice.</li>
+<li>The status cell shows <b>SUBMITTED → RUNNING → SUCCESS / FAILED</b>, a link to the run page and a status table for each task. A successful submission does not mean a successful run.</li>
+</ol>
+</section>
+
+<!-- 24 -->
+<section id="s24">
+<h2><span class="num">24</span>Scheduled execution</h2>
+<p>Configured schedule: <code>quartz_cron_expression: "0 0 18 ? * MON-FRI"</code>, <code>timezone_id: America/New_York</code>, <code>pause_status: PAUSED</code>. On 2026-10-11 the deployed Job was confirmed to have this schedule, PAUSED.</p>
+<ul>
+<li><b>How it works:</b> when unpaused, Databricks starts a run at 18:00 New York time on weekdays, with empty date parameters. The price window is therefore the last 7 days up to today, and trades are reloaded from the configured CSV.</li>
+<li><b>Enable:</b> Jobs UI → job → <i>Schedules &amp; Triggers</i> → Unpause. In development mode every <code>bundle deploy</code> pauses it again. A permanent schedule needs a production target. That is <span class="badge b-future">FUTURE ENHANCEMENT — NOT IMPLEMENTED</span>.</li>
+<li><b>History:</b> Jobs UI → Runs tab, or <code>databricks jobs list-runs --job-id &lt;id&gt;</code>. Each run has a <code>trigger</code>: <code>PERIODIC</code> means scheduled, <code>ONE_TIME</code> means manual or run-now.</li>
+<li><b>Failed runs:</b> result state other than SUCCESS in the Runs tab. <code>status = 'FAILED'</code> rows in the audit log.</li>
+<li><b>Missing runs and manual vs scheduled:</b> notebook 02 section F groups runs by New York business date, counts each Job run once (not six task rows), and labels the trigger type. It reports missing scheduled runs only when the schedule is UNPAUSED and the widget <code>schedule_active_since</code> is set, because the Jobs API has no pause history. A manual run never counts as a scheduled execution.</li>
+</ul>
+<div class="callout limit"><b class="t">No evidence of scheduled execution</b>The schedule has always been PAUSED, so no <code>PERIODIC</code> run exists. Daily scheduled execution is <span class="badge b-nv">NOT VERIFIED</span>. Note also that the cron runs on weekdays that are NYSE holidays; the price tasks then find no new expected session and succeed without new prices.</div>
+</section>
+
+<!-- 25 -->
+<section id="s25">
+<h2><span class="num">25</span>User reporting</h2>
+<h3>25.1 Notebook <code>02_pipeline_report</code> <span class="badge b-impl">IMPLEMENTED</span> <span class="badge b-nv">NOT VERIFIED on Databricks</span></h3>
+<p>Widgets: <code>run_id</code> (blank = latest run where all six tasks succeeded), <code>processing_date</code> (blank = latest date in <code>daily_pnl</code>), <code>job_name</code>/<code>job_id</code>, <code>monitor_days</code> (default 30), <code>schedule_active_since</code>. All queries are read-only and parameterised.</p>
+<div class="tablewrap"><table>
+<tr><th>Section</th><th>Content</th></tr>
+<tr><td>A Run summary</td><td>Job status (Jobs API) and status derived from the audit log, trigger type, start/finish times, Bronze/Silver/Gold counts labelled PROCESSED / ACCEPTED / REJECTED / DUPLICATE / INSERTED. Metrics the audit log does not store show <b>NOT AVAILABLE</b>. Also current table totals</td></tr>
+<tr><td>B Rejections</td><td>Reason counts for the run from <code>issue_counts</code>. Trade and price reject history with lineage</td></tr>
+<tr><td>C Positions</td><td>Book × instrument × symbol on the processing date, counterparty rows summed. Market value stays NULL if any price is missing</td></tr>
+<tr><td>D Daily P&amp;L</td><td>Totals overall, by book and by symbol (NULL if incomplete, plus a sum of complete rows), and detail rows</td></tr>
+<tr><td>E Valuation breaks</td><td>Breaks of the selected run: summary and detail for the processing date</td></tr>
+<tr><td>F Execution monitoring</td><td>One row per Job run (Jobs API + audit), daily counts of success, failure, scheduled, manual and multiple runs, and a missing-schedule check</td></tr>
+</table></div>
+<h3>25.2 SQL</h3>
+<p><code>docs/demo_queries.sql</code> contains read-only queries: Bronze prices and trades (1, 2, 2b, 2c), Silver (3, 4), rejects with reasons (5, 6), positions (7, 7b), P&amp;L (8, 8b), breaks (9), audit (10), row counts (11), idempotency checks (12, 12b, 12c). Run them in the SQL editor on a SQL warehouse.</p>
+<ol>
+<li>Trades loaded: queries 2, 2b. Prices loaded: query 1. Accepted: queries 3, 4.</li>
+<li>Rejected trades and prices with reasons: queries 5, 6.</li>
+<li>Positions: queries 7 and 7b. P&amp;L: queries 8 and 8b. Breaks: query 9. Audit: query 10.</li>
+</ol>
+</section>
+
+<!-- 26 -->
+<section id="s26">
+<h2><span class="num">26</span>Deployment</h2>
+<div class="tablewrap"><table>
+<tr><th>Step</th><th>Command</th><th>What it does</th><th>Permissions</th></tr>
+<tr><td>Build</td><td><code>./scripts/deploy.sh build</code> → <code>python -m pip wheel . --no-deps --wheel-dir dist</code></td><td>Local wheel and a list of its modules (optional check)</td><td>Local only</td></tr>
+<tr><td>Validate</td><td><code>./scripts/deploy.sh validate</code> → <code>databricks bundle validate -t dev</code></td><td>Checks the bundle and Job YAML</td><td>Workspace user</td></tr>
+<tr><td>Deploy</td><td><code>./scripts/deploy.sh deploy</code> → <code>databricks bundle deploy -t dev</code></td><td>Builds and uploads the wheel, syncs files (including notebooks), creates or updates the Job</td><td>Workspace user (job create/manage)</td></tr>
+<tr><td>Execute</td><td><code>./scripts/deploy.sh run [--params …]</code> → <code>databricks bundle run trade_pipeline -t dev</code></td><td>Starts a run and waits for it</td><td>Run permission on the Job + Unity Catalog grants</td></tr>
+</table></div>
+<h3>One-time Unity Catalog setup (elevated)</h3>
+<ol>
+<li><code>database/catalog.sql</code>, <code>bronze.sql</code>, <code>silver.sql</code>, <code>gold.sql</code> (needs CREATE CATALOG / CREATE SCHEMA).</li>
+<li><code>database/volumes/trade_files.sql</code> (CREATE VOLUME). Then upload the CSV: <code>databricks fs cp data/dirty_trades.csv dbfs:/Volumes/cibc/bronze/trade_files/dirty_trades.csv</code> (WRITE VOLUME).</li>
+<li><code>database/tables/bronze|silver|gold/*.sql</code> (CREATE TABLE).</li>
+<li>Migrations for existing tables: <code>database/migrations/add_bronze_trades_record_hash.sql</code> (ADD COLUMN, idempotent backfill, verification query).</li>
+<li><code>database/grants.sql</code> with <code>&lt;job_run_as_principal&gt;</code> replaced, if the Job runs as someone other than the owner.</li>
+</ol>
+<div class="callout limit"><b class="t">Current deployment state (2026-10-11)</b>The wheel was rebuilt (and checked to contain the insert-only MERGE), <code>bundle validate</code> returned OK, and <code>bundle deploy -t dev</code> uploaded the wheel and notebooks and updated the Job. The schedule remains PAUSED and no run was started. The <code>record_hash</code> migration has <b>not</b> been applied by this work, so until it is, <code>ingest_trades</code> will fail and skip the trade branch and Gold. The wheel version is still <code>0.1.0</code>. Whether serverless picks up a replaced wheel with the same filename is <span class="badge b-nv">NOT VERIFIED</span>; bumping the version on each release avoids the question.</div>
+</section>
+
+<!-- 27 -->
+<section id="s27">
+<h2><span class="num">27</span>Security and permissions</h2>
+<div class="tablewrap"><table>
+<tr><th>Area</th><th>Current design</th></tr>
+<tr><td>Job run-as</td><td>No <code>run_as</code> in the YAML, so the dev-mode Job runs as the deploying user. A service principal is recommended for production</td></tr>
+<tr><td>Runtime grants (<code>grants.sql</code>)</td><td>USE CATALOG on <code>cibc</code>. USE SCHEMA + SELECT + MODIFY on bronze, silver and gold. READ VOLUME on <code>cibc.bronze.trade_files</code></td></tr>
+<tr><td>Setup permissions</td><td>CREATE SCHEMA, CREATE TABLE, CREATE VOLUME, WRITE VOLUME (CSV upload). Kept separate from runtime permissions</td></tr>
+<tr><td>Report users</td><td>SELECT on the tables. CAN VIEW on the Job for section F. Notebook 01 users also need CAN MANAGE RUN</td></tr>
+<tr><td>Deployment</td><td>Databricks CLI with OAuth (<code>databricks auth login</code>). Profile chosen by <code>DATABRICKS_CONFIG_PROFILE</code></td></tr>
+<tr><td>Secrets</td><td>None stored. Yahoo Finance needs no key. A test checks that <code>deploy.sh</code> contains no tokens</td></tr>
+</table></div>
+<p>Credentials must not be stored in Git because history is permanent and widely copied, and a leaked token gives workspace access. Use CLI profiles, OAuth, service principals and Databricks secret scopes instead. Note that the workspace host URL is committed in <code>databricks.yml</code>. It is not a secret, but it identifies the environment, so it is omitted from this document.</p>
+</section>
+
+<!-- 28 -->
+<section id="s28">
+<h2><span class="num">28</span>Testing strategy</h2>
+<div class="tablewrap"><table>
+<tr><th>Type</th><th>Files</th><th>Runs locally?</th></tr>
+<tr><td>Unit / pure logic (parameters, calendar, metrics, SQL shape)</td><td>test_ingest_prices, test_process_prices, test_trades, test_build_positions, test_daily_pnl, test_delta_and_breaks, test_audit</td><td>Yes (non-Spark parts)</td></tr>
+<tr><td>Mocked ingestion (yfinance and Spark mocked)</td><td>test_ingest_prices, test_ingest_trades</td><td>Yes</td></tr>
+<tr><td>Spark transformation and financial scenarios</td><td>test_trades, test_process_prices, test_build_positions, test_daily_pnl</td><td>Need PySpark + Java</td></tr>
+<tr><td>Delta history (insert-only Bronze, Silver version selection)</td><td>test_bronze_trades_history</td><td>Need PySpark + delta-spark</td></tr>
+<tr><td>Generator determinism</td><td>test_generate_trades</td><td>Yes</td></tr>
+<tr><td>Packaging / Job config</td><td>test_packaging, test_trades (job DAG)</td><td>Yes</td></tr>
+<tr><td>Notebook helpers and syntax</td><td>test_notebooks</td><td>Yes</td></tr>
+<tr><td>Live API probes</td><td>tests/live/test_stooq.py, test_yahoo.py</td><td>Excluded by default</td></tr>
+<tr><td>Bundle validation</td><td><code>databricks bundle validate</code></td><td>OK on 2026-10-11</td></tr>
+<tr><td>End-to-end on Databricks</td><td>Six-task Job run</td><td>Earlier version succeeded. Current version <span class="badge b-nv">NOT VERIFIED</span></td></tr>
+</table></div>
+<div class="cards">
+<div class="card ok"><h4>135 passed</h4>Local run, 2026-10-11 (Python 3.11, no PySpark).</div>
+<div class="card"><h4>69 skipped</h4>All Spark/Delta tests (PySpark not installed). <b>Skipped is not passed.</b></div>
+<div class="card" style="background:var(--red-l);border-color:#f1a9a2"><h4>6 failed</h4>Missing files: Silver constraint scripts and <code>add_silver_lineage_columns.sql</code> (<a href="#s16">§16</a>).</div>
+</div>
+<pre><code>python -m pytest tests -q                              # offline suite
+python -m pytest -o addopts="" tests/live -s           # live network probes</code></pre>
+</section>
+
+<!-- 29 -->
+<section id="s29">
+<h2><span class="num">29</span>Idempotency and reprocessing</h2>
+<div class="tablewrap"><table>
+<tr><th>Component</th><th>Rerun strategy</th><th>Key</th><th>Expected result of an identical rerun</th></tr>
+<tr><td>Bronze prices</td><td>MERGE, update only changed values</td><td>(symbol, price_date)</td><td>0 inserted, 0 updated</td></tr>
+<tr><td>Bronze trades</td><td>Insert-only MERGE</td><td>record_hash</td><td>0 inserted. <code>duplicate_rows = input_rows</code></td></tr>
+<tr><td>Silver prices</td><td>Conditional MERGE</td><td>(symbol, price_date)</td><td>No rows rewritten</td></tr>
+<tr><td>Silver trades</td><td>Conditional MERGE + idempotent DELETE</td><td>trade_id</td><td>No rows rewritten</td></tr>
+<tr><td>Reject tables</td><td>Insert-only null-safe MERGE</td><td>raw columns + reason</td><td>0 new rejects</td></tr>
+<tr><td>Gold positions</td><td>Full recompute, MERGE on value change, scoped DELETE</td><td>(date, book, counterparty, instrument, currency)</td><td>No rows changed</td></tr>
+<tr><td>Gold daily P&amp;L</td><td>As above</td><td>(date, book, symbol, currency)</td><td>No rows changed</td></tr>
+<tr><td>Valuation breaks</td><td>Insert-only MERGE per run</td><td>(run_id, trade_id, instrument_id, date, type)</td><td>Same run: nothing new. New run: a new set of rows</td></tr>
+<tr><td>Audit log</td><td>MERGE per attempt</td><td>(run_id, task_run_id)</td><td>New run: new rows (expected history)</td></tr>
+</table></div>
+<p><b>Idempotent business data vs repeated executions.</b> Re-running the Job leaves business tables unchanged but correctly adds audit rows and a new run-level set of breaks. <b>Historical trade versions</b> are kept in Bronze, while Silver holds only the latest valid version. <b>Corrections</b> (a new version) change one Silver row, and the full recompute updates every affected Gold date. Verify with demo queries 11, 12, 12b and 12c.</p>
+</section>
+
+<!-- 30 -->
+<section id="s30">
+<h2><span class="num">30</span>Design decisions and tradeoffs</h2>
+<div class="tablewrap"><table>
+<tr><th>Decision</th><th>Reason</th><th>Benefit</th><th>Tradeoff</th><th>Production alternative</th></tr>
+<tr><td>Databricks instead of a standalone Python app</td><td>Challenge platform. Spark + Delta + governance</td><td>Scales, ACID, lineage, scheduling</td><td>Platform cost and complexity</td><td>Same, with environment separation</td></tr>
+<tr><td>Delta Lake instead of CSV storage</td><td>MERGE, transactions, history</td><td>Idempotency, time travel, constraints</td><td>Delta-specific SQL</td><td>Same</td></tr>
+<tr><td>Bronze / Silver / Gold</td><td>Separate raw data, validated data and business results</td><td>Replay and audit, clear responsibilities</td><td>More tables and steps</td><td>Same, plus a reference-data layer</td></tr>
+<tr><td>Python wheel instead of notebook ETL</td><td>Testable, versioned code</td><td>Unit tests, entry points, code review</td><td>Less interactive</td><td>Same. Notebooks only for operations</td></tr>
+<tr><td>Delta MERGE everywhere</td><td>Safe reruns</td><td>No duplicates</td><td>Write cost of the join</td><td>Incremental MERGE with change data feed</td></tr>
+<tr><td>Historical (insert-only) Bronze trades, replacing full snapshot</td><td>Keep every raw version and its first-ingest metadata</td><td>Audit trail, true raw history</td><td>Growth. Re-sent changed records can become ambiguous</td><td>File/batch ids, incremental Silver</td></tr>
+<tr><td>Latest-version trade selection, no fallback</td><td>Never value a superseded trade</td><td>Conservative and explainable</td><td>An invalid correction removes the trade from Gold</td><td>Trade lifecycle events with status</td></tr>
+<tr><td>Exact-date market valuation</td><td>Transparent pricing</td><td>No hidden stale prices</td><td>More NULLs and breaks</td><td>Configurable fallback with flags</td></tr>
+<tr><td>Missing-price breaks, NULL P&amp;L</td><td>Show exceptions openly</td><td>Totals are never silently wrong</td><td>Incomplete totals</td><td>Break workflow with status and ownership</td></tr>
+<tr><td>Audit table per task attempt</td><td>Operational evidence</td><td>Queryable history</td><td>Insert/update counts not stored</td><td>Store full metrics. Use system tables</td></tr>
+<tr><td>Serverless compute</td><td>No cluster management (Free Edition)</td><td>Simple, fast start</td><td>Fewer runtime controls</td><td>Serverless or job clusters with policies</td></tr>
+<tr><td>Synthetic trade data</td><td>No real trade source</td><td>Deterministic test of every rule</td><td>Not representative of production</td><td>OMS / trade-capture feed</td></tr>
+<tr><td>Lightweight NYSE calendar</td><td>Keep the challenge simple and free of calendar-service dependencies</td><td>Readable, deployable, tested</td><td>Approximations (<a href="#s31">§31 A</a>)</td><td>Authoritative exchange calendar</td></tr>
+</table></div>
+</section>
+
+<!-- 31 -->
+<section id="s31">
+<h2><span class="num">31</span>Business assumptions</h2>
+
+<h3>A. US Equity Market Calendar</h3>
+<p><b>Current implementation.</b> <code>src/trade_pipeline/common/market_calendar.py</code> is a lightweight, rule-based NYSE calendar built on pandas <code>AbstractHolidayCalendar</code> and <code>CustomBusinessDay</code>. <code>expected_trading_sessions(start, end)</code> returns sessions in the half-open range [start, end). <code>requested_sessions(start, end, as_of)</code> returns sessions in the inclusive range up to <code>as_of</code> (default <code>date.today()</code>).</p>
+<p>It is used more widely than price ingestion and validation: by <code>ingest_prices</code> (expected sessions and missing-price detection), <code>process_prices</code> (UNEXPECTED_TRADING_DATE, completeness), <code>process_trades</code> (NON_TRADING_TRADE_DATE and the T+1 settlement convention) and <code>build_positions</code> (the valuation timeline).</p>
+<div class="cards">
+<div class="card ok"><h4>Supported</h4>Excludes Saturdays and Sundays. Excludes New Year's Day, Martin Luther King Jr. Day, Presidents' Day, Good Friday (Easter − 2 days), Memorial Day, Juneteenth (from 2022), Independence Day, Labor Day, Thanksgiving and Christmas. Inclusive ranges. Excludes future dates.</div>
+<div class="card"><h4>Observance</h4>Fixed-date holidays use <code>nearest_workday</code>: a Saturday holiday moves to Friday, a Sunday holiday moves to Monday.</div>
+</div>
+<div class="callout assume"><b class="t">Assumptions</b>
+<ol>
+<li>The solution processes US-listed equities on a simplified NYSE calendar.</li>
+<li>A daily close is expected for every regular NYSE session.</li>
+<li>The pipeline runs after the US market close. The schedule is 18:00 New York time, two hours after the 16:00 close.</li>
+<li>Non-trading days need no closing price. A trade dated on a non-trading day is rejected.</li>
+<li>P&amp;L uses the <b>previous available close</b> (latest close before the valuation date) as its baseline. Positions and current-day valuation use only the exact-date close.</li>
+</ol></div>
+<div class="tablewrap"><table>
+<tr><th>Limitation</th><th>Description</th></tr>
+<tr><td>Simplified calendar</td><td>Covers recurring holidays but not exceptional NYSE closures (for example national days of mourning or weather events).</td></tr>
+<tr><td>Early market closes</td><td>Shortened sessions (such as the day after Thanksgiving) are treated as full sessions. This does not change the result for end-of-day closes but is not modelled.</td></tr>
+<tr><td>New Year's observance</td><td><code>nearest_workday</code> marks Friday 31 December as a holiday when 1 January falls on a Saturday, although NYSE trades that day. The price for that session would not be expected, and trades dated that day would be rejected as NON_TRADING_TRADE_DATE.</td></tr>
+<tr><td>Timezone</td><td>“Today” is <code>date.today()</code> in the runtime environment, not explicitly America/New_York.</td></tr>
+<tr><td>Intraday execution</td><td>Today's session is expected even before the market closes. A manual run during trading hours fails the completeness check because today's close does not exist yet.</td></tr>
+<tr><td>Exchange coverage</td><td>One calendar for all instruments. Other exchanges are not supported.</td></tr>
+<tr><td>Schedule vs sessions</td><td>The MON-FRI cron also fires on NYSE holidays. A scheduled date is not necessarily a trading day.</td></tr>
+</table></div>
+<div class="cards">
+<div class="card future"><h4>Recommended — FUTURE ENHANCEMENT — NOT IMPLEMENTED</h4>
+<ol><li>Integrate an authoritative exchange-calendar provider.</li><li>Choose the calendar per exchange from instrument reference data.</li><li>Use timezone-aware market-session calculations.</li><li>Support early closes and exceptional holidays.</li><li>Check price availability only against completed sessions.</li><li>Make the valuation calendar configurable per market.</li></ol></div>
+</div>
+<p><b>Design decision.</b> A lightweight calendar keeps the challenge simple, readable and deployable without extra calendar-service dependencies. It is suitable for demonstrating US equity session validation but does not replace an authoritative production exchange calendar.</p>
+
+<h3>B. Currency</h3>
+<p><b>Current:</b> only USD is accepted. Non-USD prices and trades are rejected (<code>INVALID_CURRENCY</code>). Currency is part of the Gold keys and is stored, but <b>no FX conversion is performed</b>. Prices, trades, positions and P&amp;L are all in USD. <b>Why:</b> challenge scope. <b>Limitation:</b> a currency column alone does not make multi-currency valuation possible. <b>Recommended:</b> currency reference data, FX rates, a base/reporting currency, conversion, FX P&amp;L and currency-specific precision <span class="badge b-future">FUTURE ENHANCEMENT — NOT IMPLEMENTED</span>.</p>
+
+<h3>C. Instruments</h3>
+<p><b>Current:</b> a hard-coded map <code>INSTRUMENT_ID_TO_SYMBOL</code> (INS001→AAPL … INS010→PLTR) in <code>config.py</code>. Silver rejects unknown instruments and symbol mismatches, and Gold maps instrument to symbol for price joins. <b>Limitation:</b> a ticker is not stable reference data. Symbols change and are reused, and they are not unique across exchanges. A code release is needed for every new instrument. <b>Recommended:</b> an instrument master with instrument_id, symbol, exchange, currency, asset class, instrument type, trading calendar, price source, active status and <b>effective dates</b>, so historical trades join to the mapping valid at the time <span class="badge b-future">FUTURE ENHANCEMENT — NOT IMPLEMENTED</span>.</p>
+
+<h3>D. Counterparties</h3>
+<p><b>Current:</b> <code>counterparty_id</code> must not be blank. No reference check, and no active or inactive status. It is part of the position key. <b>Recommended:</b> a counterparty table (id, name, status, country, effective dates) with referential-integrity checks and rules for inactive counterparties <span class="badge b-future">FUTURE ENHANCEMENT — NOT IMPLEMENTED</span>.</p>
+
+<h3>E. Books</h3>
+<p><b>Current:</b> <code>book_id</code> must not be blank. No reference table. <b>Recommended:</b> a book table (book id, name, business unit, base currency, active status) <span class="badge b-future">FUTURE ENHANCEMENT — NOT IMPLEMENTED</span>.</p>
+
+<h3>F. Trade status and lifecycle</h3>
+<div class="callout limit"><b class="t">Trade lifecycle processing is not implemented</b>The schema has <b>no trade status column</b>. A <i>version</i> is a successive record of the same trade, and the highest valid one wins. A <i>status</i> (NEW, AMENDED, CANCELLED, CORRECTED, SETTLED) would describe the business state. Cancellations cannot be expressed: a trade that disappears from a later file stays in Bronze and Silver and keeps counting in positions. Amendments are handled only as new versions.</div>
+<p><b>Recommended:</b> status, amendment, cancellation and reversal events with effective dating. A cancellation would remove the trade's quantity from the trade date onwards and trigger a recompute of the affected position and P&amp;L dates. An amendment would replace quantity or price for its effective range <span class="badge b-future">FUTURE ENHANCEMENT — NOT IMPLEMENTED</span>.</p>
+
+<h3>G. Trade, settlement and valuation dates</h3>
+<p>Positions are <b>trade-date based</b>. The settlement date is validated (on or after the trade date, next NYSE session) but <b>does not affect positions</b>, and there is no settlement status. <i>Valuation date</i> is a Gold calendar date (NYSE session or trade date). <i>Modified timestamp</i> only orders versions. <b>Recommended:</b> settlement lifecycle integration with settled vs traded positions <span class="badge b-future">FUTURE ENHANCEMENT — NOT IMPLEMENTED</span>.</p>
+
+<h3>H. Market prices</h3>
+<p>Daily <b>unadjusted</b> closing prices (<code>auto_adjust=False</code>) from Yahoo Finance, one source, no price-quality checks beyond positivity and completeness. Splits, dividends and other corporate actions are not applied. Missing exact-date prices produce breaks. Holidays need no prices.</p>
+
+<h3>I. Position and P&amp;L scope</h3>
+<div class="tablewrap"><table>
+<tr><th>Scope item</th><th>Verified behaviour</th></tr>
+<tr><td>Asset class</td><td>US equities only (10 configured tickers)</td></tr>
+<tr><td>Prices</td><td>Daily closes only, no intraday</td></tr>
+<tr><td>P&amp;L</td><td>Simple daily mark-to-market (<a href="#s19">§19</a>) plus a cumulative proxy</td></tr>
+<tr><td>Transaction costs, commissions, financing</td><td>Not included</td></tr>
+<tr><td>Dividends, corporate actions</td><td>Not included</td></tr>
+<tr><td>Realised vs unrealised split, FX P&amp;L</td><td>Not included</td></tr>
+</table></div>
+</section>
+
+<!-- 32 -->
+<section id="s32">
+<h2><span class="num">32</span>Technical limitations</h2>
+<div class="tablewrap"><table>
+<tr><th>Limitation</th><th>Impact</th></tr>
+<tr><td>Yahoo Finance instead of Stooq</td><td>Challenge deviation. No SLA</td></tr>
+<tr><td>Full-history recompute in Silver trades and Gold</td><td>Cost grows with history</td></tr>
+<tr><td>Hard-coded catalog, table names and instrument map</td><td>No environment-specific catalog. Code change for new instruments</td></tr>
+<tr><td>Development-mode bundle only</td><td>Schedule re-paused on each deploy. Job named per user</td></tr>
+<tr><td>Insert/update/delete counts not stored in the audit table</td><td>Reports show NOT AVAILABLE</td></tr>
+<tr><td>Gold scoped delete ignores instruments that vanish entirely</td><td>Stale Gold rows possible</td></tr>
+<tr><td>Silver trades MERGE + DELETE not atomic</td><td>Transient inconsistency if the DELETE fails, fixed by the next run</td></tr>
+<tr><td>Breaks are never closed</td><td>Status always OPEN</td></tr>
+<tr><td>Missing constraint and migration files in the working tree</td><td>6 failing tests. Setup instructions reference absent files</td></tr>
+<tr><td>Spark tests not run locally</td><td>Transformation correctness relies on earlier and Databricks runs</td></tr>
+<tr><td>Calendar approximations</td><td>See <a href="#s31">§31 A</a></td></tr>
+</table></div>
+</section>
+
+<!-- 33 -->
+<section id="s33">
+<h2><span class="num">33</span>Production Architecture — Recommended Enhancements</h2>
+<p>All items in this section are <span class="badge b-future">FUTURE ENHANCEMENT — NOT IMPLEMENTED</span>. Priority: <b>P1</b> high, <b>P2</b> medium, <b>P3</b> longer term.</p>
+<div class="tablewrap"><table>
+<tr><th>Area</th><th>Improvement</th><th>Current limitation</th><th>Proposed solution</th><th>Business benefit</th><th>Priority</th></tr>
+<tr><td>26.1 Reference data</td><td>Reference tables <code>reference.instruments</code>, <code>.counterparties</code>, <code>.books</code>, <code>.currencies</code>, <code>.exchanges</code>, <code>.market_calendars</code> (proposed)</td><td>Hard-coded map. Blank checks only</td><td>Effective-dated masters with owners and active flags. Referential-integrity rejects</td><td>Standard identifiers, correct historical joins</td><td>P1</td></tr>
+<tr><td>26.2 Multi-currency</td><td>FX ingestion and history, base/reporting currency, conversion, FX P&amp;L, precision</td><td>USD only</td><td>FX rate table, convert to reporting currency before aggregation</td><td>P&amp;L in different currencies is never summed without conversion</td><td>P2</td></tr>
+<tr><td>26.3 Trade lifecycle</td><td>Status, amendments, cancellations, reversals, settlement status, event history, effective dating</td><td>Versions only. No cancellation</td><td>Add <code>trade_status</code> and event type to Bronze/Silver. Silver as effective-dated history. Recompute affected dates</td><td>Correct positions after cancels and amends</td><td>P1</td></tr>
+<tr><td>26.4 Market calendar</td><td>Exchange calendars, early closes, timezone-aware sessions, missing-session detection</td><td>Simplified NYSE rules, runtime-local date</td><td>Authoritative calendar provider. New York timezone for “today”</td><td>Fewer false failures and breaks</td><td>P1</td></tr>
+<tr><td>26.5 Market data</td><td>Licensed provider, retry and rate-limit handling, multiple sources, quality and freshness checks, corporate actions</td><td>Free unofficial API</td><td>Vendor feed, cross-source validation, outlier checks</td><td>Reliable valuations</td><td>P1</td></tr>
+<tr><td>26.6 P&amp;L</td><td>Realised / unrealised / FX P&amp;L, costs, commissions, dividends, corporate actions, cash, reconciliation</td><td>Simple daily MTM + proxy</td><td>Cost-basis engine (FIFO/average), cash ledger, reconciliation to official P&amp;L</td><td>Production-grade, reconcilable P&amp;L</td><td>P2</td></tr>
+<tr><td>26.7 Data quality</td><td>Reference checks, duplicate-key monitors, outliers, freshness, completeness thresholds, scorecards</td><td>Rule-level rejects only</td><td>Expectation framework with thresholds that fail or alert</td><td>Early detection</td><td>P2</td></tr>
+<tr><td>26.8 Monitoring</td><td>Failure alerts, SLA, missing-run detection, freshness and rejection-rate alerts, dashboards</td><td>Manual notebook review</td><td>Job notifications, SQL alerts, dashboard on audit and Jobs system tables</td><td>Faster incident response</td><td>P1</td></tr>
+<tr><td>26.9 Security</td><td>Service principals, least privilege, environment separation, secrets, retention, audit policies</td><td>Runs as the deploying user. dev only</td><td>Prod target with <code>run_as</code> service principal. Per-environment catalogs</td><td>Governance and separation of duties</td><td>P1</td></tr>
+<tr><td>26.10 CI/CD</td><td>Automated tests incl. Spark, bundle validate in CI, controlled deploys, environment config, rollback</td><td>Manual local runs. Spark tests skipped</td><td>CI pipeline with Java/Spark, versioned wheels, promotion dev → test → prod</td><td>Safe, repeatable releases</td><td>P1</td></tr>
+</table></div>
+<h3>Proposed Future Architecture — Not Implemented</h3>
+<figure>
+<svg viewBox="0 0 1000 470" role="img" aria-labelledby="d7t">
+<title id="d7t">Proposed future architecture — not implemented</title>
+<defs><marker id="a7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#b26b00"/></marker></defs>
+<g font-family="Segoe UI,Arial" font-size="12" text-anchor="middle">
+<rect x="5" y="5" width="990" height="30" rx="6" fill="#fff4e0" stroke="#b26b00"/><text x="500" y="25" font-weight="700" fill="#8a4b00">PROPOSED FUTURE ARCHITECTURE — NOT IMPLEMENTED</text>
+<g stroke-dasharray="5 3">
+<rect x="20" y="55" width="170" height="50" rx="8" fill="#fff" stroke="#b26b00"/><text x="105" y="85">Trade capture / OMS</text>
+<rect x="270" y="55" width="170" height="50" rx="8" fill="#fff" stroke="#b26b00"/><text x="355" y="85">Market data vendor(s)</text>
+<rect x="520" y="55" width="200" height="50" rx="8" fill="#fff" stroke="#b26b00"/><text x="620" y="78">Reference data</text><text x="620" y="95" font-size="10">instruments · CP · books · calendars</text>
+<rect x="800" y="55" width="180" height="50" rx="8" fill="#fff" stroke="#b26b00"/><text x="890" y="85">FX rates</text>
+<rect x="20" y="140" width="960" height="45" rx="8" fill="#fbeedd" stroke="#b26b00"/><text x="500" y="168">BRONZE — raw, insert-only, per-source batch ids</text>
+<rect x="20" y="215" width="960" height="45" rx="8" fill="#eef1f5" stroke="#5b6575"/><text x="500" y="237">SILVER — validated trades with lifecycle status &amp; effective dating · conformed reference data · FX history</text><text x="500" y="252" font-size="10">exchange calendars, referential integrity, data-quality expectations</text>
+<rect x="20" y="290" width="300" height="55" rx="8" fill="#fff4e0" stroke="#b26b00"/><text x="170" y="315">Positions (traded &amp; settled)</text><text x="170" y="332" font-size="10">reporting currency</text>
+<rect x="350" y="290" width="300" height="55" rx="8" fill="#fff4e0" stroke="#b26b00"/><text x="500" y="315">P&amp;L: realized · unrealized · FX</text><text x="500" y="332" font-size="10">costs, dividends, corporate actions</text>
+<rect x="680" y="290" width="300" height="55" rx="8" fill="#fff4e0" stroke="#b26b00"/><text x="830" y="315">Reconciliation</text><text x="830" y="332" font-size="10">vs official / finance P&amp;L</text>
+<rect x="20" y="380" width="640" height="60" rx="8" fill="#e6f4ea" stroke="#1a7f37"/><text x="340" y="407">BUSINESS REPORTING — dashboards, SQL, break workflow</text>
+<rect x="690" y="380" width="290" height="60" rx="8" fill="#fdecea" stroke="#b42318"/><text x="835" y="405">Monitoring &amp; alerting</text><text x="835" y="422" font-size="10">SLA, freshness, missing runs, DQ scores</text>
+</g>
+<g stroke="#b26b00" stroke-width="2" marker-end="url(#a7)"><path d="M105,105V138"/><path d="M355,105V138"/><path d="M620,105V138"/><path d="M890,105V138"/><path d="M500,185V213"/><path d="M170,260V288"/><path d="M500,260V288"/><path d="M830,260V288"/><path d="M340,345V378"/></g>
+</g></svg>
+<figcaption>Figure 7 — Target architecture. Compared with today it adds reference data, FX, trade lifecycle, exchange calendars, extended P&amp;L, reconciliation, and automated monitoring and alerting. None of these exist today.</figcaption>
+</figure>
+</section>
+
+<!-- 34 -->
+<section id="s34">
+<h2><span class="num">34</span>Troubleshooting</h2>
+<div class="tablewrap"><table>
+<tr><th>Issue</th><th>Symptoms</th><th>Likely cause</th><th>Investigate</th><th>Action</th></tr>
+<tr><td>Missing CSV</td><td>ingest_trades FAILED: “Could not read trade CSV”</td><td>Volume or file not created or uploaded</td><td>Catalog Explorer → Volume <code>trade_files</code></td><td>Run <code>volumes/trade_files.sql</code>. Upload the CSV</td></tr>
+<tr><td>Invalid header</td><td>“Trade CSV header mismatch”</td><td>Renamed or missing column</td><td>Compare the header with the 14 columns</td><td>Fix the file. Never rename columns in code alone</td></tr>
+<tr><td>Empty file</td><td>“Trade CSV source is empty”</td><td>Header-only file</td><td>File size</td><td>Regenerate or re-export</td></tr>
+<tr><td>Market API failure</td><td>ingest_prices: “download failed after 3 attempts”</td><td>Network, rate limit, provider outage</td><td>Task log, audit <code>error_message</code></td><td>Repair the run later. Narrow tickers</td></tr>
+<tr><td>Missing prices</td><td>“Incomplete Yahoo Finance response” / “Missing expected ticker/session”</td><td>Run before the close, provider gap, calendar mismatch</td><td>Listed pairs in the error</td><td>Rerun after the close or with an earlier end_date</td></tr>
+<tr><td>Invalid trades</td><td>High <code>rejected_rows</code></td><td>Source data quality</td><td>Demo query 6, notebook 02 section B</td><td>Correct at source, send a new version</td></tr>
+<tr><td>Duplicate trades</td><td>High <code>duplicate_rows</code></td><td>Re-sent file or superseded versions</td><td><code>issue_counts</code> (ALREADY_INGESTED, DUPLICATE_TRADE_VERSION)</td><td>Expected for reruns. Investigate only if unexpected</td></tr>
+<tr><td>Missing valuation baseline</td><td>MISSING_BASELINE, NULL P&amp;L</td><td>No close before the first valued date</td><td>Breaks query 9</td><td>Backfill earlier price dates</td></tr>
+<tr><td>Schema mismatch</td><td>UNRESOLVED_COLUMN / MERGE schema error</td><td>Migration not applied (for example <code>record_hash</code>)</td><td><code>DESCRIBE TABLE</code></td><td>Apply the migration, then rerun</td></tr>
+<tr><td>Unity Catalog permissions</td><td>PERMISSION_DENIED</td><td>Missing grants for the run-as identity</td><td><code>SHOW GRANTS</code></td><td>Apply <code>grants.sql</code></td></tr>
+<tr><td>Wheel installation failure</td><td>Task fails before any audit row</td><td>Missing or incorrect wheel, dependency conflict</td><td>Run page environment logs</td><td><code>deploy.sh build</code>, then redeploy</td></tr>
+<tr><td>Job execution failure</td><td>Run FAILED, downstream SKIPPED</td><td>Any task error</td><td>Run page, audit FAILED rows</td><td>Fix, then <b>Repair run</b></td></tr>
+<tr><td>Missing audit records</td><td>Run in history, nothing in the audit log</td><td>Failure before task code, or audit table missing</td><td>Jobs run history (notebook 02 F)</td><td>Check environment and DDL</td></tr>
+<tr><td>Unexpected P&amp;L</td><td>Value differs from expectation</td><td>Wrong version selected, missing price, quantity sign</td><td>Demo 8b, Silver trades for the book/symbol, prices</td><td>Recompute manually with the <a href="#s19">§19</a> formula</td></tr>
+<tr><td>Failed daily schedule</td><td>No run at 18:00</td><td>Schedule PAUSED (development mode re-pauses it on deploy)</td><td>Jobs UI schedule, notebook 02 F</td><td>Unpause, or deploy a production target</td></tr>
+</table></div>
+</section>
+
+<!-- 35 -->
+<section id="s35">
+<h2><span class="num">35</span>Five-minute technical demo</h2>
+<div class="tablewrap"><table>
+<tr><th>Time</th><th>Topic</th><th>What to show</th><th>Reference</th></tr>
+<tr><td>0:00–0:45</td><td>Architecture</td><td>Figure 1 and the six-task DAG</td><td>This document §1, §8. <code>trade_pipeline.job.yml</code></td></tr>
+<tr><td>0:45–1:30</td><td>Bronze</td><td>Raw string prices and trades. Insert-only history and record_hash</td><td><code>demo_queries.sql</code> 1, 2, 2b, 2c</td></tr>
+<tr><td>1:30–2:15</td><td>Silver</td><td>Typed tables, reasons for rejects, version selection</td><td>Queries 3–6. Notebook 02 section B</td></tr>
+<tr><td>2:15–3:15</td><td>Gold</td><td>Positions by book, daily P&amp;L, NULL vs 0, breaks</td><td>Queries 7–9. Notebook 02 sections C–E</td></tr>
+<tr><td>3:15–4:00</td><td>Operations</td><td>Start a run from notebook 01, show status and audit rows</td><td>Notebook 01. Query 10. Notebook 02 sections A and F</td></tr>
+<tr><td>4:00–5:00</td><td>Engineering</td><td><code>deploy.sh</code>, tests, idempotency (rerun → 0 inserts), future roadmap</td><td>Queries 11–12c. §29, §33</td></tr>
+</table></div>
+</section>
+
+<!-- 36 -->
+<section id="s36">
+<h2><span class="num">36</span>Glossary</h2>
+<div class="tablewrap"><table>
+<tr><th>Term</th><th>Definition</th></tr>
+<tr><td>Trade</td><td>An agreement to buy or sell a quantity of an instrument at a price</td></tr>
+<tr><td>Instrument</td><td>A tradable security, here identified by instrument_id and ticker symbol</td></tr>
+<tr><td>Counterparty</td><td>The other party to a trade</td></tr>
+<tr><td>Book</td><td>A trading portfolio used to group positions and P&amp;L</td></tr>
+<tr><td>Position</td><td>The net quantity held at a date (positive long, negative short)</td></tr>
+<tr><td>P&amp;L</td><td>Profit and loss: the change in value over a period</td></tr>
+<tr><td>Mark-to-market</td><td>Valuing a position at the current market price</td></tr>
+<tr><td>Valuation</td><td>Calculating market value at a date, here closing quantity × close</td></tr>
+<tr><td>Trade version</td><td>A successive record of the same trade_id. The highest valid version is current</td></tr>
+<tr><td>Trade status</td><td>Business lifecycle state (NEW, AMENDED, CANCELLED …). <b>Not present</b> in this schema</td></tr>
+<tr><td>Bronze / Silver / Gold</td><td>Raw / validated / business-ready layers of the medallion architecture</td></tr>
+<tr><td>Delta Lake</td><td>A transactional table format on cloud storage with MERGE and history</td></tr>
+<tr><td>Unity Catalog</td><td>Databricks governance layer for catalogs, schemas, tables, volumes and grants</td></tr>
+<tr><td>MERGE</td><td>A SQL upsert that inserts, updates or deletes based on a match condition</td></tr>
+<tr><td>Idempotency</td><td>Repeating an operation leaves the same result</td></tr>
+<tr><td>Data lineage</td><td>Being able to trace data back to its sources and processing runs</td></tr>
+<tr><td>Valuation break</td><td>An exception where a valuation could not be calculated (for example, a missing price)</td></tr>
+<tr><td>Market calendar</td><td>The set of trading sessions of an exchange</td></tr>
+<tr><td>FX rate</td><td>Exchange rate between two currencies (not implemented)</td></tr>
+<tr><td>Reference data</td><td>Shared master data such as instruments, counterparties and books (not implemented as tables)</td></tr>
+</table></div>
+</section>
+
+<!-- Appendix -->
+<section id="appx">
+<h2>Appendix — Documentation accuracy &amp; verification status</h2>
+<div class="tablewrap"><table>
+<tr><th>Item</th><th>Status</th><th>Note</th></tr>
+<tr><td>Bronze trades write mode</td><td><span class="badge b-impl">VERIFIED IN CODE</span></td><td>Insert-only MERGE on record_hash. INSERT OVERWRITE has been removed</td></tr>
+<tr><td>Bronze prices MERGE</td><td><span class="badge b-impl">VERIFIED IN CODE</span></td><td>(symbol, price_date)</td></tr>
+<tr><td>Silver keeps only the latest valid version, with no fallback</td><td><span class="badge b-impl">VERIFIED IN CODE</span></td><td><code>prepare_trades</code></td></tr>
+<tr><td>Gold uses MERGE + scoped delete</td><td><span class="badge b-impl">VERIFIED IN CODE</span></td><td>WHEN NOT MATCHED BY SOURCE … DELETE</td></tr>
+<tr><td>P&amp;L formula</td><td><span class="badge b-impl">VERIFIED IN CODE</span></td><td><code>calculate_daily_pnl</code></td></tr>
+<tr><td>Notebooks exist and are deployed</td><td><span class="badge b-impl">VERIFIED</span></td><td>Synced by bundle deploy on 2026-10-11</td></tr>
+<tr><td>Schedule configured / enabled</td><td><span class="badge b-part">CONFIGURED, PAUSED</span></td><td>Deployed Job checked 2026-10-11</td></tr>
+<tr><td>Successful run of the current code</td><td><span class="badge b-nv">NOT VERIFIED</span></td><td>Needs the record_hash migration first</td></tr>
+<tr><td>Scheduled execution</td><td><span class="badge b-nv">NOT VERIFIED</span></td><td>No PERIODIC run exists</td></tr>
+<tr><td>Silver CHECK constraints on live tables</td><td><span class="badge b-nv">NOT VERIFIED</span></td><td>Constraint scripts missing from the working tree</td></tr>
+<tr><td>Delta MERGE result columns on the runtime</td><td><span class="badge b-nv">NOT VERIFIED (current code)</span></td><td>Same parser already used by the Silver writers in earlier successful runs</td></tr>
+<tr><td>Runtime local date = UTC</td><td><span class="badge b-nv">NOT VERIFIED</span></td><td>Stated in the README</td></tr>
+<tr><td>README: “Python wheel tasks instead of notebooks”</td><td><span class="badge b-part">OUT OF DATE</span></td><td>ETL is still wheel-based, but operational notebooks now exist</td></tr>
+<tr><td>README / data_contracts reference missing files</td><td><span class="badge b-part">DISCREPANCY</span></td><td>Constraint scripts and the Silver lineage migration are absent</td></tr>
+</table></div>
+<p class="small">This document deliberately omits workspace host, user identities, job ids and tokens.</p>
+</section>
+</main>
+
+<script>
+(function(){
+  var nav=document.getElementById('toc'),btn=document.getElementById('menu');
+  btn.addEventListener('click',function(){var o=nav.classList.toggle('open');btn.setAttribute('aria-expanded',o)});
+  nav.addEventListener('click',function(e){if(e.target.tagName==='A'&&window.innerWidth<=980){nav.classList.remove('open');btn.setAttribute('aria-expanded','false')}});
+  function setAll(open){document.querySelectorAll('details').forEach(function(d){d.open=open})}
+  document.getElementById('expandAll').onclick=function(){setAll(true)};
+  document.getElementById('collapseAll').onclick=function(){setAll(false)};
+  window.addEventListener('beforeprint',function(){setAll(true)});
+  var links={};nav.querySelectorAll('a[href^="#"]').forEach(function(a){links[a.getAttribute('href').slice(1)]=a});
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting&&links[e.target.id]){Object.keys(links).forEach(function(k){links[k].classList.remove('active')});links[e.target.id].classList.add('active')}})},{rootMargin:'0px 0px -70% 0px'});
+    document.querySelectorAll('main section[id]').forEach(function(s){io.observe(s)});
+  }
+})();
+</script>
+</body>
+</html>
