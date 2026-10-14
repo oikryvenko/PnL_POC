@@ -1,17 +1,11 @@
 ﻿Issue ID,Issue Type,Planning Key,Epic Name,Epic Link,Parent ID,Summary,Description,Acceptance Criteria,Priority,Story Points,Status,Implementation Status,Dependencies,Sprint,Requirement ID
-TMP-EP01,Epic,TMP-EP01,Project Initiation and Business Analysis,,,Project Initiation and Business Analysis,Delivery epic: Project Initiation and Business Analysis. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
-TMP-EP02,Epic,TMP-EP02,Requirements and Acceptance Criteria,,,Requirements and Acceptance Criteria,Delivery epic: Requirements and Acceptance Criteria. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
-TMP-EP03,Epic,TMP-EP03,Solution Architecture and Technical Design,,,Solution Architecture and Technical Design,Delivery epic: Solution Architecture and Technical Design. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
-TMP-EP04,Epic,TMP-EP04,Data Sourcing and Data Modelling,,,Data Sourcing and Data Modelling,Delivery epic: Data Sourcing and Data Modelling. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
-TMP-EP05,Epic,TMP-EP05,Platform Setup and CI/CD,,,Platform Setup and CI/CD,Delivery epic: Platform Setup and CI/CD. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
-TMP-EP06,Epic,TMP-EP06,Trade Data Ingestion,,,Trade Data Ingestion,Delivery epic: Trade Data Ingestion. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
-TMP-EP07,Epic,TMP-EP07,Market Price Ingestion,,,Market Price Ingestion,Delivery epic: Market Price Ingestion. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
-TMP-EP08,Epic,TMP-EP08,Silver Data Processing,,,Silver Data Processing,Delivery epic: Silver Data Processing. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
-TMP-EP09,Epic,TMP-EP09,Position Calculation,,,Position Calculation,Delivery epic: Position Calculation. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
-TMP-EP10,Epic,TMP-EP10,P&L Calculation,,,P&L Calculation,Delivery epic: P&L Calculation. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
-TMP-EP11,Epic,TMP-EP11,Reporting and Dashboard,,,Reporting and Dashboard,Delivery epic: Reporting and Dashboard. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,Medium,,To Do,Mixed; see stories,,,
-TMP-EP12,Epic,TMP-EP12,Testing and Reconciliation,,,Testing and Reconciliation,Delivery epic: Testing and Reconciliation. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
-TMP-EP13,Epic,TMP-EP13,"Deployment, Monitoring and Handover",,,"Deployment, Monitoring and Handover","Delivery epic: Deployment, Monitoring and Handover. Includes evidenced current functionality and linked proposed completion work.",See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
+TMP-EP01,Epic,TMP-EP01,Project Mobilisation and Business Requirements,,,Project Mobilisation and Business Requirements,Delivery epic: Project Mobilisation and Business Requirements. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
+TMP-EP02,Epic,TMP-EP02,"Architecture, Data Contracts and Governance Design",,,"Architecture, Data Contracts and Governance Design","Delivery epic: Architecture, Data Contracts and Governance Design. Includes evidenced current functionality and linked proposed completion work.",See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
+TMP-EP03,Epic,TMP-EP03,Platform Engineering and CI/CD,,,Platform Engineering and CI/CD,Delivery epic: Platform Engineering and CI/CD. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
+TMP-EP04,Epic,TMP-EP04,Trade and Market Data Integration,,,Trade and Market Data Integration,Delivery epic: Trade and Market Data Integration. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
+TMP-EP05,Epic,TMP-EP05,Positions and Daily P&L,,,Positions and Daily P&L,Delivery epic: Positions and Daily P&L. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
+TMP-EP06,Epic,TMP-EP06,"Testing, Reconciliation and Reporting",,,"Testing, Reconciliation and Reporting","Delivery epic: Testing, Reconciliation and Reporting. Includes evidenced current functionality and linked proposed completion work.",See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
+TMP-EP07,Epic,TMP-EP07,Release Readiness and Operational Handover,,,Release Readiness and Operational Handover,Delivery epic: Release Readiness and Operational Handover. Includes evidenced current functionality and linked proposed completion work.,See linked stories; epic is complete when all committed child stories meet their acceptance criteria.,High,,To Do,Mixed; see stories,,,
 TMP-001,Story,TMP-001,,TMP-EP01,,Baseline current implementation and confirm scope,"Objective: Record verified capabilities, limitations, stakeholders, assumptions, and prototype-versus-production boundaries.
 
 Detail: Use repository modules, DDL, tests, Bundle, and dated run evidence to approve the first scope baseline. Do not describe proposed controls as deployed.
@@ -21,7 +15,7 @@ Inputs: Repository; product/operations contacts
 Expected outputs: Approved scope and implementation inventory","- Inventory covers all six workflow tasks, 10 physical tables, two notebooks, Bundle targets, and test evidence.
 - Every capability is labelled implemented, partial, planned, or to be confirmed with a repository evidence reference.
 - Business owner confirms prototype scope and named decision owners before Sprint 2 exit.",High,2,In Progress,PARTIALLY IMPLEMENTED,,Sprint 1,BR-001; BR-008; FR-012
-TMP-002,Story,TMP-002,,TMP-EP02,,Approve business and functional requirements,"Objective: Turn current capabilities and business needs into testable BR/FR acceptance criteria.
+TMP-002,Story,TMP-002,,TMP-EP01,,Approve business and functional requirements,"Objective: Turn current capabilities and business needs into testable BR/FR acceptance criteria.
 
 Detail: Confirm user roles, daily business outputs, timing, correction semantics, report needs, and sign-off owners. Link BR-001..008 to FR-001..013.
 
@@ -30,7 +24,7 @@ Inputs: Implementation inventory; business/operations interviews
 Expected outputs: Signed requirements and acceptance criteria","- All eight business requirements have an owner, priority, acceptance evidence, and dependency.
 - All 13 functional requirements identify input, processing, output, business rule, and failure behavior.
 - Product owner records decisions or explicit TBDs; no unsupported policy is silently assumed.",High,3,To Do,PLANNED,TMP-001,Sprint 1,BR-001; BR-002; BR-003; BR-004; BR-005; BR-006; BR-007; BR-008; FR-001; FR-002; FR-003; FR-004; FR-005; FR-006; FR-007; FR-008; FR-009; FR-010; FR-011; FR-012; FR-013
-TMP-003,Story,TMP-003,,TMP-EP02,,Set measurable non-functional and operational targets,"Objective: Agree performance, availability, support, security, retention, RTO/RPO, and recovery targets.
+TMP-003,Story,TMP-003,,TMP-EP01,,Set measurable non-functional and operational targets,"Objective: Agree performance, availability, support, security, retention, RTO/RPO, and recovery targets.
 
 Detail: Use proposed thresholds as discussion points only. Confirm owner, measurement window, and evidence for each target.
 
@@ -39,7 +33,7 @@ Inputs: Business/technology policy owners; proposed NFRs
 Expected outputs: Approved NFR baseline","- NFR-01..10 each has a confirmed target or named owner and due date for TBD.
 - Performance baseline includes representative row counts, symbols, runtime, and cost.
 - Retention, access classification, RTO/RPO, support hours, and alert response are approved or explicitly excluded from prototype.",High,2,To Do,PLANNED,TMP-002,Sprint 1,BR-007; BR-008; FR-011; FR-012; FR-013
-TMP-004,Story,TMP-004,,TMP-EP03,,Document and validate existing solution architecture,"Objective: Establish an evidence-backed architecture baseline and component responsibilities.
+TMP-004,Story,TMP-004,,TMP-EP02,,Document and validate existing solution architecture,"Objective: Establish an evidence-backed architecture baseline and component responsibilities.
 
 Detail: Document Unity Catalog, Delta layers, Python wheel, Job, notebooks, audit/rejects, and current deployment path.
 
@@ -48,7 +42,7 @@ Inputs: Repository implementation
 Expected outputs: Current-state architecture","- Current architecture matches databricks.yml, job YAML, source modules, and DDL.
 - Trade/price parallel branches and join dependencies are accurate.
 - Current provider, paused schedule, dev-only target, and notebook reporting are labelled as implemented/current limitations.",High,3,Done,IMPLEMENTED,,,BR-001; BR-002; BR-004; BR-005; BR-007; BR-008; FR-006; FR-008; FR-011; FR-012
-TMP-005,Story,TMP-005,,TMP-EP03,,Approve target security and environment architecture,"Objective: Define deployable dev/test/prod boundaries and least-privilege runtime identity.
+TMP-005,Story,TMP-005,,TMP-EP02,,Approve target security and environment architecture,"Objective: Define deployable dev/test/prod boundaries and least-privilege runtime identity.
 
 Detail: Design only what is supported by actual workspace controls; confirm environment availability, principals, grants, networking, and secrets approach.
 
@@ -56,8 +50,8 @@ Inputs: Workspace/platform/security owner decisions
 
 Expected outputs: Approved environment and access design","- Environment promotion and job identity are approved by platform owner.
 - Unity Catalog grants cover required schemas and Volume only; no secrets are committed.
-- Architecture labels all unprovisioned targets and controls as proposed.",High,3,To Do,PLANNED,TMP-002; TMP-003; TMP-004,Sprint 1,BR-007; BR-008; FR-011; FR-012
-TMP-006,Story,TMP-006,,TMP-EP04,,Confirm trade source contract and snapshot semantics,"Objective: Make source ownership, completeness, corrections, and deletion semantics explicit.
+- Architecture labels all unprovisioned targets and controls as proposed.",High,3,To Do,PLANNED,TMP-002; TMP-003; TMP-004,Sprint 2,BR-007; BR-008; FR-011; FR-012
+TMP-006,Story,TMP-006,,TMP-EP02,,Confirm trade source contract and snapshot semantics,"Objective: Make source ownership, completeness, corrections, and deletion semantics explicit.
 
 Detail: Current input is synthetic; define the future producer contract and safe transition from full snapshot to an authoritative feed.
 
@@ -65,8 +59,8 @@ Inputs: Synthetic CSV; trade owner
 
 Expected outputs: Trade source specification","- Trade source owner, file schema, delivery cutoff, completeness marker, and correction/deletion semantics are recorded.
 - A missing trade in a later snapshot is not treated as a cancellation without explicit business rule.
-- Sample volume, retention, privacy classification, and replay window are approved or tracked as TBD.",High,2,In Progress,PARTIALLY IMPLEMENTED,,,BR-001; BR-003; FR-001; FR-004; FR-009
-TMP-007,Story,TMP-007,,TMP-EP04,,Select and approve market-data source,"Objective: Resolve whether Yahoo Finance is acceptable for the prototype and choose a licensed production source.
+- Sample volume, retention, privacy classification, and replay window are approved or tracked as TBD.",High,2,In Progress,PARTIALLY IMPLEMENTED,,Sprint 1,BR-001; BR-003; FR-001; FR-004; FR-009
+TMP-007,Story,TMP-007,,TMP-EP02,,Select and approve market-data source,"Objective: Resolve whether Yahoo Finance is acceptable for the prototype and choose a licensed production source.
 
 Detail: Confirm price type, currency, adjustments, symbol universe, rights, correction policy, availability, and missing-price escalation; synthetic fixtures are acceptable for deterministic tests only.
 
@@ -75,7 +69,7 @@ Inputs: Current yfinance adapter; market-data owner
 Expected outputs: Approved source decision and interface contract","- Provider and business owner approve data rights and use case before production.
 - Price-date/price-type/currency contract and correction policy are documented.
 - Daily availability and expected-session completeness thresholds have named owners.",High,3,To Do,PLANNED,TMP-002,Sprint 2,BR-002; BR-005; FR-002; FR-005; FR-007; FR-008
-TMP-008,Story,TMP-008,,TMP-EP04,,Approve physical data dictionary and retention model,"Objective: Review all current table grains, keys, financial types, lineage, and future retention needs.
+TMP-008,Story,TMP-008,,TMP-EP02,,Approve physical data dictionary and retention model,"Objective: Review all current table grains, keys, financial types, lineage, and future retention needs.
 
 Detail: Use the 10 physical DDL files as current-state truth; identify no enforced primary keys and no dedicated reference/reporting tables.
 
@@ -84,8 +78,8 @@ Inputs: database/tables DDL; provider/trade contracts
 Expected outputs: Approved dictionary and data-retention decisions","- Data dictionary lists every column and exact DDL type/nullability for all 10 tables.
 - Business owner approves table grain and logical key assumptions.
 - Partitioning/clustering remains absent unless measured query patterns justify it.
-- Retention and Delta cleanup policy are approved before any production purge/optimization.",High,2,In Progress,PARTIALLY IMPLEMENTED,TMP-006; TMP-007,Sprint 2,BR-003; BR-004; BR-005; BR-007; FR-003; FR-006; FR-007; FR-008; FR-009; FR-011
-TMP-009,Story,TMP-009,,TMP-EP05,,Maintain reproducible Databricks Asset Bundle development deployment,"Objective: Validate current development Bundle build and deploy path.
+- Retention and Delta cleanup policy are approved before any production purge/optimization.",High,2,To Do,NOT VERIFIED,TMP-006; TMP-007,Sprint 5,BR-003; BR-004; BR-005; BR-007; FR-003; FR-006; FR-007; FR-008; FR-009; FR-011
+TMP-009,Story,TMP-009,,TMP-EP03,,Maintain reproducible Databricks Asset Bundle development deployment,"Objective: Validate current development Bundle build and deploy path.
 
 Detail: Bundle builds a wheel and deploys the six-task job/notebooks to the dev target; schedule remains paused by configuration.
 
@@ -94,7 +88,7 @@ Inputs: databricks.yml; job resource; scripts/deploy.sh
 Expected outputs: Validated dev deployment procedure","- Bundle validation succeeds with the documented dev target and CLI profile.
 - Wheel contains all six entry points and deploy uses repository source.
 - Manual smoke run evidence is attached; no production readiness is inferred.",High,3,Done,IMPLEMENTED,,,BR-008; FR-012
-TMP-010,Story,TMP-010,,TMP-EP05,,Add reviewed CI checks and controlled deployment promotion,"Objective: Automate deterministic tests, Bundle validation, and reviewed artifact promotion.
+TMP-010,Story,TMP-010,,TMP-EP03,,Add reviewed CI checks and controlled deployment promotion,"Objective: Automate deterministic tests, Bundle validation, and reviewed artifact promotion.
 
 Detail: Create CI using existing pytest/package/Bundle checks; add non-dev targets only after platform provisioning and identity approval.
 
@@ -103,7 +97,7 @@ Inputs: Approved environment/security design; current Bundle
 Expected outputs: CI workflow and controlled deploy procedure","- Pull request CI runs deterministic local tests and Bundle validation without credentials in logs.
 - Deployment artifact/version is traceable to reviewed source revision.
 - Promotion cannot unpause a schedule or deploy to an unapproved target without explicit approval.",High,5,To Do,PLANNED,TMP-005; TMP-009,Sprint 3,BR-007; BR-008; FR-012; FR-013
-TMP-011,Story,TMP-011,,TMP-EP06,,Ingest synthetic trade snapshot into Bronze,"Objective: Load structurally valid trade snapshots with deterministic raw lineage.
+TMP-011,Story,TMP-011,,TMP-EP04,,Ingest synthetic trade snapshot into Bronze,"Objective: Load structurally valid trade snapshots with deterministic raw lineage.
 
 Detail: Current implementation validates the 14-field CSV and atomically overwrites Bronze after input checks.
 
@@ -112,7 +106,7 @@ Inputs: CSV snapshot in UC Volume
 Expected outputs: cibc.bronze.trades","- Exact schema, empty-file, and malformed-row cases are tested.
 - Identical in-batch records are removed; versions of a trade remain present.
 - Invalid file never overwrites existing Bronze; valid rerun yields same business rows.",High,5,Done,IMPLEMENTED,TMP-006,,BR-001; BR-003; FR-001; FR-013
-TMP-012,Story,TMP-012,,TMP-EP06,,Resolve trade snapshot disappearance and historical correction controls,"Objective: Prevent a source snapshot replacement from leaving stale or silently deleting trades.
+TMP-012,Story,TMP-012,,TMP-EP04,,Resolve trade snapshot disappearance and historical correction controls,"Objective: Prevent a source snapshot replacement from leaving stale or silently deleting trades.
 
 Detail: Current Bronze retains only latest snapshot and Silver does not remove trade IDs absent from a later file. Choose event/history storage or safe snapshot reconciliation.
 
@@ -121,7 +115,7 @@ Inputs: Approved trade source semantics; current Bronze/Silver behavior
 Expected outputs: Versioned history/reconciliation design and tested implementation","- Trade owner approves semantics for missing trade IDs, cancellation, and correction.
 - A two-snapshot test proves accepted Silver matches the agreed authoritative source state.
 - Backdated corrections are traceable and recompute the intended history without unrelated deletes.",High,5,To Do,PLANNED,TMP-006; TMP-011,Sprint 3,BR-003; BR-004; BR-005; FR-004; FR-009; FR-013
-TMP-013,Story,TMP-013,,TMP-EP07,,Ingest and retain daily market-price history,"Objective: Load supported daily close records with source identity and repeatable keys.
+TMP-013,Story,TMP-013,,TMP-EP04,,Ingest and retain daily market-price history,"Objective: Load supported daily close records with source identity and repeatable keys.
 
 Detail: Current adapter calls Yahoo Finance, stores unadjusted closes, retries transient failures, and merges Bronze on symbol/date.
 
@@ -130,7 +124,7 @@ Inputs: Daily price provider response
 Expected outputs: cibc.bronze.market_prices","- Default symbols, date boundaries, provider response variants, NaN, duplicate keys, and retry errors have deterministic tests.
 - Price rows carry source, currency, ingestion timestamp, and run lineage.
 - Provider limitations and data rights are explicit in the source contract.",High,5,Done,IMPLEMENTED,TMP-007,,BR-002; FR-002; FR-013
-TMP-014,Story,TMP-014,,TMP-EP07,,Harden price source decision and completeness exception process,"Objective: Make price completeness and manual resolution operationally actionable.
+TMP-014,Story,TMP-014,,TMP-EP04,,Harden price source decision and completeness exception process,"Objective: Make price completeness and manual resolution operationally actionable.
 
 Detail: Use provider choice from TMP-007; define approved synthetic fixtures for test environments and operational handling for late/missing prices.
 
@@ -138,8 +132,8 @@ Inputs: Approved provider decision; current completeness checks
 
 Expected outputs: Price-source controls and exception runbook","- Missing expected session is tied to symbol/date and owner; no stale price is used for position valuation.
 - Test fixtures are deterministic and cannot be mistaken for production source data.
-- Approved provider/credentials, rate limits, correction policy, and retries are configured outside source code where required.",High,3,To Do,PLANNED,TMP-007; TMP-013,Sprint 2,BR-002; BR-005; BR-007; FR-002; FR-005; FR-007; FR-013
-TMP-015,Story,TMP-015,,TMP-EP08,,Validate Silver trades and prices with reject history,"Objective: Publish typed records only after business validation and deterministic version selection.
+- Approved provider/credentials, rate limits, correction policy, and retries are configured outside source code where required.",High,3,To Do,PLANNED,TMP-007; TMP-013,Sprint 5,BR-002; BR-005; BR-007; FR-002; FR-005; FR-007; FR-013
+TMP-015,Story,TMP-015,,TMP-EP04,,Validate Silver trades and prices with reject history,"Objective: Publish typed records only after business validation and deterministic version selection.
 
 Detail: Current code performs typed conversion, configured business checks, deduplication/versioning, conditional merge, and reject-history writes.
 
@@ -148,7 +142,7 @@ Inputs: Bronze trades and prices
 Expected outputs: Silver validated tables and rejects","- Trade and price fixtures cover configured rules and reason codes.
 - Silver trade business key is trade_id; price key is symbol + price_date.
 - Reject writes are idempotent and preserve raw source fields/lineage; missing expected price blocks Silver update.",High,5,Done,IMPLEMENTED,TMP-011; TMP-013,,BR-003; BR-007; FR-003; FR-004; FR-005; FR-013
-TMP-016,Story,TMP-016,,TMP-EP08,,Run Spark/Delta integration and end-to-end rerun validation,"Objective: Prove Delta writes, constraints, lineage, recovery, and same-input idempotency in a supported runtime.
+TMP-016,Story,TMP-016,,TMP-EP06,,Run Spark/Delta integration and end-to-end rerun validation,"Objective: Prove Delta writes, constraints, lineage, recovery, and same-input idempotency in a supported runtime.
 
 Detail: Local Spark availability is not evidenced; docs/test_results.md records a successful dated pipeline run but its same-parameter second run was queued.
 
@@ -156,8 +150,8 @@ Inputs: Supported Spark/Delta environment; current test suite
 
 Expected outputs: Integration, idempotency, and recovery evidence","- Spark/Delta integration suite runs in a supported CI or Databricks test environment and results are retained.
 - A second complete run with the same inputs verifies stable business keys/values and expected audit history growth.
-- Failure injection confirms no unsafe publication and a documented rerun recovers the task.",High,2,To Do,PLANNED,TMP-015,Sprint 2,BR-003; BR-007; BR-008; FR-003; FR-005; FR-009; FR-013
-TMP-017,Story,TMP-017,,TMP-EP09,,Build cumulative daily positions and exact-date valuation,"Objective: Publish historical positions at the agreed book/counterparty/instrument/date grain.
+- Failure injection confirms no unsafe publication and a documented rerun recovers the task.",High,2,To Do,PLANNED,TMP-015,Sprint 4,BR-003; BR-007; BR-008; FR-003; FR-005; FR-009; FR-013
+TMP-017,Story,TMP-017,,TMP-EP05,,Build cumulative daily positions and exact-date valuation,"Objective: Publish historical positions at the agreed book/counterparty/instrument/date grain.
 
 Detail: Current implementation aggregates signed trade quantities, carries positions across trading sessions, and joins same-day same-currency marks.
 
@@ -166,7 +160,7 @@ Inputs: Silver trades and prices
 Expected outputs: cibc.gold.positions; position valuation breaks","- Position grain and key match the approved dictionary.
 - Daily buys, sells, net, closing quantity, close, and market value reconcile to independent calculations.
 - Missing same-day price leaves price/value NULL and creates a break without changing quantity.",High,5,Done,IMPLEMENTED,TMP-015,,BR-004; BR-005; FR-006; FR-007; FR-009
-TMP-018,Story,TMP-018,,TMP-EP10,,Calculate daily cash-equity mark-to-market P&L,"Objective: Separate opening position market move from trade-day economic P&L.
+TMP-018,Story,TMP-018,,TMP-EP05,,Calculate daily cash-equity mark-to-market P&L,"Objective: Separate opening position market move from trade-day economic P&L.
 
 Detail: Current Gold formula uses prior close for opening inventory and signed trade consideration for intraday activity; cumulative proxy is not true unrealized P&L.
 
@@ -175,7 +169,7 @@ Inputs: Gold positions; Silver trades/prices
 Expected outputs: cibc.gold.daily_pnl; P&L breaks","- Daily output grain is valuation_date + book_id + symbol + currency.
 - Price movement and trade-day terms reconcile independently, including sells, new/flat positions, prior-close baseline, and missing prices.
 - unrealized_pnl_proxy is clearly labelled as a cumulative proxy and is not presented as true unrealized P&L.",High,5,Done,IMPLEMENTED,TMP-017,,BR-005; FR-007; FR-008; FR-009
-TMP-019,Story,TMP-019,,TMP-EP11,,Provide notebook and SQL operational reporting,"Objective: Expose current job run, audit metrics, rejections, positions, P&L, and valuation breaks.
+TMP-019,Story,TMP-019,,TMP-EP06,,Provide notebook and SQL operational reporting,"Objective: Expose current job run, audit metrics, rejections, positions, P&L, and valuation breaks.
 
 Detail: A run-trigger notebook, read-only report notebook, and demo SQL exist. No deployed dashboard is evidenced.
 
@@ -184,7 +178,7 @@ Inputs: Gold/Silver tables and Jobs API
 Expected outputs: Run-control/report notebooks and SQL queries","- Run report identifies audit-derived status and clearly marks unavailable counts.
 - Notebook output is read-only and totals reconcile to source tables.
 - Report states that scheduled-run completeness is not evaluated and dashboard is not implemented.",Medium,3,Done,IMPLEMENTED,TMP-018,,BR-006; BR-007; BR-008; FR-010; FR-011; FR-012
-TMP-020,Story,TMP-020,,TMP-EP11,,Deliver user-accepted trading and P&L dashboard MVP,"Objective: Present agreed Gold reporting datasets in an approved Databricks SQL dashboard or chosen BI tool.
+TMP-020,Story,TMP-020,,TMP-EP06,,Deliver user-accepted trading and P&L dashboard MVP,"Objective: Present agreed Gold reporting datasets in an approved Databricks SQL dashboard or chosen BI tool.
 
 Detail: Dashboard technology, user roles, filters, reconciliation views, and access model remain to be confirmed; this is proposed work, not current functionality.
 
@@ -192,8 +186,8 @@ Inputs: Approved reporting requirements; Gold datasets
 
 Expected outputs: Dashboard MVP and validation evidence","- Product owner signs off audience, filters, date/book/symbol dimensions, and exception drill-through.
 - Dashboard totals reconcile to Gold daily_pnl and positions for agreed test dates.
-- Dashboard access is least privilege and deployment is repeatable; no dashboard is reported as live before sign-off.",Medium,5,To Do,PLANNED,TMP-002; TMP-008; TMP-018; TMP-019,Sprint 4,BR-006; FR-010
-TMP-021,Story,TMP-021,,TMP-EP12,,Maintain deterministic unit and transformation tests,"Objective: Protect module contracts and calculation rules with repeatable test cases.
+- Dashboard access is least privilege and deployment is repeatable; no dashboard is reported as live before sign-off.",Medium,5,Blocked,BLOCKED,TMP-002; TMP-008; TMP-018; TMP-019,Sprint 5,BR-006; FR-010
+TMP-021,Story,TMP-021,,TMP-EP06,,Maintain deterministic unit and transformation tests,"Objective: Protect module contracts and calculation rules with repeatable test cases.
 
 Detail: Tests cover source parsing, transformations, DDL/query shape, packaging, notebook helpers, and financial examples; Spark-dependent cases need a compatible runtime. Three focused tests currently fail because they reference removed Silver *_constraints.sql files; current checks are consolidated into trades.sql and market_prices.sql.
 
@@ -202,8 +196,8 @@ Inputs: pytest suite; supported Python/Spark runtime
 Expected outputs: Deterministic test evidence","- Business-rule tests include correction, duplicate, calendar, missing price, short position, and P&L decomposition cases.
 - CI reports skips separately from passes and does not treat unavailable Spark tests as verified.
 - Replace stale test references with the consolidated Silver DDL and verify its CHECK constraints.
-- New failures are triaged against the baseline; no unrelated failures are silently waived.",High,3,In Progress,PARTIALLY IMPLEMENTED,,,BR-001; BR-002; BR-003; BR-004; BR-005; BR-007; FR-001; FR-002; FR-003; FR-004; FR-005; FR-006; FR-007; FR-008
-TMP-022,Story,TMP-022,,TMP-EP12,,Complete independent position/P&L reconciliation and UAT,"Objective: Close the gap between pipeline output and business-approved calculations.
+- New failures are triaged against the baseline; no unrelated failures are silently waived.",High,3,In Progress,PARTIALLY IMPLEMENTED,,Sprint 4,BR-001; BR-002; BR-003; BR-004; BR-005; BR-007; FR-001; FR-002; FR-003; FR-004; FR-005; FR-006; FR-007; FR-008
+TMP-022,Story,TMP-022,,TMP-EP06,,Complete independent position/P&L reconciliation and UAT,"Objective: Close the gap between pipeline output and business-approved calculations.
 
 Detail: The 2026-10-11 run has independent SQL reconciliation with zero reported mismatches; same-input rerun remained queued in the report.
 
@@ -213,7 +207,7 @@ Expected outputs: Reconciliation and UAT sign-off","- Trade-to-position quantiti
 - Position market value and daily P&L reconcile using approved close/baseline/trade cash-flow methodology.
 - Business owner signs UAT evidence for representative long, short, flat, correction, and missing-price cases.
 - A complete same-input rerun has recorded evidence; do not rely only on unit tests.",High,2,In Progress,PARTIALLY IMPLEMENTED,TMP-016; TMP-018,Sprint 4,BR-003; BR-004; BR-005; BR-006; FR-006; FR-007; FR-008; FR-009; FR-010; FR-013
-TMP-023,Story,TMP-023,,TMP-EP13,,Operate the dev workflow with controlled scheduling,"Objective: Use existing Asset Bundle workflow safely and keep schedule gated on readiness.
+TMP-023,Story,TMP-023,,TMP-EP07,,Operate the dev workflow with controlled scheduling,"Objective: Use existing Asset Bundle workflow safely and keep schedule gated on readiness.
 
 Detail: Current Job allows one concurrent run, runs six tasks, and has a weekday 18:00 America/New_York schedule configured as PAUSED.
 
@@ -221,8 +215,8 @@ Inputs: Deployed dev Job; operational readiness decisions
 
 Expected outputs: Controlled dev operating procedure","- Manual run and failure states are visible in Job UI and audit tables.
 - Schedule remains paused until source owner, support contact, permissions, runbook, and alert path are approved.
-- Any future unpause/change is reviewed and recorded with owner and rollback path.",High,3,In Progress,PARTIALLY IMPLEMENTED,TMP-009,,BR-007; BR-008; FR-011; FR-012; FR-013
-TMP-024,Story,TMP-024,,TMP-EP13,,"Create support runbook, alerting, and handover","Objective: Prepare an operational handoff with actionable diagnosis and escalation.
+- Any future unpause/change is reviewed and recorded with owner and rollback path.",High,3,In Progress,PARTIALLY IMPLEMENTED,TMP-009,Sprint 2,BR-007; BR-008; FR-011; FR-012; FR-013
+TMP-024,Story,TMP-024,,TMP-EP07,,"Create support runbook, alerting, and handover","Objective: Prepare an operational handoff with actionable diagnosis and escalation.
 
 Detail: Define monitoring on Job/audit/reject/break signals; alerting and support ownership are not implemented in the repo.
 
@@ -235,95 +229,95 @@ TMP-001-ST01,Sub-task,TMP-001-ST01,,TMP-EP01,TMP-001,"Inventory code, DDL, tests
 Dependency: TMP-001.","Completed evidence for inventory code, ddl, tests, docs, and deployment assets",High,,In Progress,PARTIALLY IMPLEMENTED,TMP-001,Sprint 1,BR-001; BR-008; FR-012
 TMP-001-ST02,Sub-task,TMP-001-ST02,,TMP-EP01,TMP-001,Review prototype boundaries and obtain scope decisions,"Expected output: Completed evidence for review prototype boundaries and obtain scope decisions
 Dependency: TMP-001.",Completed evidence for review prototype boundaries and obtain scope decisions,High,,In Progress,PARTIALLY IMPLEMENTED,TMP-001,Sprint 1,BR-001; BR-008; FR-012
-TMP-002-ST01,Sub-task,TMP-002-ST01,,TMP-EP02,TMP-002,"Interview trading, operations, and technology stakeholders","Expected output: Completed evidence for interview trading, operations, and technology stakeholders
+TMP-002-ST01,Sub-task,TMP-002-ST01,,TMP-EP01,TMP-002,"Interview trading, operations, and technology stakeholders","Expected output: Completed evidence for interview trading, operations, and technology stakeholders
 Dependency: TMP-002.","Completed evidence for interview trading, operations, and technology stakeholders",High,,To Do,PLANNED,TMP-002,Sprint 1,BR-001; BR-002; BR-003; BR-004; BR-005; BR-006; BR-007; BR-008; FR-001; FR-002; FR-003; FR-004; FR-005; FR-006; FR-007; FR-008; FR-009; FR-010; FR-011; FR-012; FR-013
-TMP-002-ST02,Sub-task,TMP-002-ST02,,TMP-EP02,TMP-002,Review and approve BR/FR traceability and decisions,"Expected output: Completed evidence for review and approve br/fr traceability and decisions
+TMP-002-ST02,Sub-task,TMP-002-ST02,,TMP-EP01,TMP-002,Review and approve BR/FR traceability and decisions,"Expected output: Completed evidence for review and approve br/fr traceability and decisions
 Dependency: TMP-002.",Completed evidence for review and approve br/fr traceability and decisions,High,,To Do,PLANNED,TMP-002,Sprint 1,BR-001; BR-002; BR-003; BR-004; BR-005; BR-006; BR-007; BR-008; FR-001; FR-002; FR-003; FR-004; FR-005; FR-006; FR-007; FR-008; FR-009; FR-010; FR-011; FR-012; FR-013
-TMP-003-ST01,Sub-task,TMP-003-ST01,,TMP-EP02,TMP-003,Measure demo workload and propose service thresholds,"Expected output: Completed evidence for measure demo workload and propose service thresholds
+TMP-003-ST01,Sub-task,TMP-003-ST01,,TMP-EP01,TMP-003,Measure demo workload and propose service thresholds,"Expected output: Completed evidence for measure demo workload and propose service thresholds
 Dependency: TMP-003.",Completed evidence for measure demo workload and propose service thresholds,High,,To Do,PLANNED,TMP-003,Sprint 1,BR-007; BR-008; FR-011; FR-012; FR-013
-TMP-003-ST02,Sub-task,TMP-003-ST02,,TMP-EP02,TMP-003,"Confirm security, retention, recovery, and support policies","Expected output: Completed evidence for confirm security, retention, recovery, and support policies
+TMP-003-ST02,Sub-task,TMP-003-ST02,,TMP-EP01,TMP-003,"Confirm security, retention, recovery, and support policies","Expected output: Completed evidence for confirm security, retention, recovery, and support policies
 Dependency: TMP-003.","Completed evidence for confirm security, retention, recovery, and support policies",High,,To Do,PLANNED,TMP-003,Sprint 1,BR-007; BR-008; FR-011; FR-012; FR-013
-TMP-004-ST01,Sub-task,TMP-004-ST01,,TMP-EP03,TMP-004,Trace workflow and component ownership from code/config,"Expected output: Completed evidence for trace workflow and component ownership from code/config
+TMP-004-ST01,Sub-task,TMP-004-ST01,,TMP-EP02,TMP-004,Trace workflow and component ownership from code/config,"Expected output: Completed evidence for trace workflow and component ownership from code/config
 Dependency: TMP-004.",Completed evidence for trace workflow and component ownership from code/config,High,,Done,IMPLEMENTED,TMP-004,,BR-001; BR-002; BR-004; BR-005; BR-007; BR-008; FR-006; FR-008; FR-011; FR-012
-TMP-004-ST02,Sub-task,TMP-004-ST02,,TMP-EP03,TMP-004,Review target-state gap and architecture decisions,"Expected output: Completed evidence for review target-state gap and architecture decisions
+TMP-004-ST02,Sub-task,TMP-004-ST02,,TMP-EP02,TMP-004,Review target-state gap and architecture decisions,"Expected output: Completed evidence for review target-state gap and architecture decisions
 Dependency: TMP-004.",Completed evidence for review target-state gap and architecture decisions,High,,Done,IMPLEMENTED,TMP-004,,BR-001; BR-002; BR-004; BR-005; BR-007; BR-008; FR-006; FR-008; FR-011; FR-012
-TMP-005-ST01,Sub-task,TMP-005-ST01,,TMP-EP03,TMP-005,"Confirm target workspaces, principals, and data access","Expected output: Completed evidence for confirm target workspaces, principals, and data access
-Dependency: TMP-005.","Completed evidence for confirm target workspaces, principals, and data access",High,,To Do,PLANNED,TMP-005,Sprint 1,BR-007; BR-008; FR-011; FR-012
-TMP-005-ST02,Sub-task,TMP-005-ST02,,TMP-EP03,TMP-005,"Document secret, grant, and deployment configuration controls","Expected output: Completed evidence for document secret, grant, and deployment configuration controls
-Dependency: TMP-005.","Completed evidence for document secret, grant, and deployment configuration controls",High,,To Do,PLANNED,TMP-005,Sprint 1,BR-007; BR-008; FR-011; FR-012
-TMP-006-ST01,Sub-task,TMP-006-ST01,,TMP-EP04,TMP-006,Confirm 14-column schema and required fields,"Expected output: Completed evidence for confirm 14-column schema and required fields
-Dependency: TMP-006.",Completed evidence for confirm 14-column schema and required fields,High,,In Progress,PARTIALLY IMPLEMENTED,TMP-006,,BR-001; BR-003; FR-001; FR-004; FR-009
-TMP-006-ST02,Sub-task,TMP-006-ST02,,TMP-EP04,TMP-006,"Agree source snapshot, correction, cancellation, and replay rules","Expected output: Completed evidence for agree source snapshot, correction, cancellation, and replay rules
-Dependency: TMP-006.","Completed evidence for agree source snapshot, correction, cancellation, and replay rules",High,,In Progress,PARTIALLY IMPLEMENTED,TMP-006,,BR-001; BR-003; FR-001; FR-004; FR-009
-TMP-007-ST01,Sub-task,TMP-007-ST01,,TMP-EP04,TMP-007,"Assess provider options, licensing, and connection method","Expected output: Completed evidence for assess provider options, licensing, and connection method
+TMP-005-ST01,Sub-task,TMP-005-ST01,,TMP-EP02,TMP-005,"Confirm target workspaces, principals, and data access","Expected output: Completed evidence for confirm target workspaces, principals, and data access
+Dependency: TMP-005.","Completed evidence for confirm target workspaces, principals, and data access",High,,To Do,PLANNED,TMP-005,Sprint 2,BR-007; BR-008; FR-011; FR-012
+TMP-005-ST02,Sub-task,TMP-005-ST02,,TMP-EP02,TMP-005,"Document secret, grant, and deployment configuration controls","Expected output: Completed evidence for document secret, grant, and deployment configuration controls
+Dependency: TMP-005.","Completed evidence for document secret, grant, and deployment configuration controls",High,,To Do,PLANNED,TMP-005,Sprint 2,BR-007; BR-008; FR-011; FR-012
+TMP-006-ST01,Sub-task,TMP-006-ST01,,TMP-EP02,TMP-006,Confirm 14-column schema and required fields,"Expected output: Completed evidence for confirm 14-column schema and required fields
+Dependency: TMP-006.",Completed evidence for confirm 14-column schema and required fields,High,,In Progress,PARTIALLY IMPLEMENTED,TMP-006,Sprint 1,BR-001; BR-003; FR-001; FR-004; FR-009
+TMP-006-ST02,Sub-task,TMP-006-ST02,,TMP-EP02,TMP-006,"Agree source snapshot, correction, cancellation, and replay rules","Expected output: Completed evidence for agree source snapshot, correction, cancellation, and replay rules
+Dependency: TMP-006.","Completed evidence for agree source snapshot, correction, cancellation, and replay rules",High,,In Progress,PARTIALLY IMPLEMENTED,TMP-006,Sprint 1,BR-001; BR-003; FR-001; FR-004; FR-009
+TMP-007-ST01,Sub-task,TMP-007-ST01,,TMP-EP02,TMP-007,"Assess provider options, licensing, and connection method","Expected output: Completed evidence for assess provider options, licensing, and connection method
 Dependency: TMP-007.","Completed evidence for assess provider options, licensing, and connection method",High,,To Do,PLANNED,TMP-007,Sprint 2,BR-002; BR-005; FR-002; FR-005; FR-007; FR-008
-TMP-007-ST02,Sub-task,TMP-007-ST02,,TMP-EP04,TMP-007,"Approve close definition, currency, corrections, and session coverage","Expected output: Completed evidence for approve close definition, currency, corrections, and session coverage
+TMP-007-ST02,Sub-task,TMP-007-ST02,,TMP-EP02,TMP-007,"Approve close definition, currency, corrections, and session coverage","Expected output: Completed evidence for approve close definition, currency, corrections, and session coverage
 Dependency: TMP-007.","Completed evidence for approve close definition, currency, corrections, and session coverage",High,,To Do,PLANNED,TMP-007,Sprint 2,BR-002; BR-005; FR-002; FR-005; FR-007; FR-008
-TMP-008-ST01,Sub-task,TMP-008-ST01,,TMP-EP04,TMP-008,"Validate table grains, keys, constraints, and lineage","Expected output: Completed evidence for validate table grains, keys, constraints, and lineage
-Dependency: TMP-008.","Completed evidence for validate table grains, keys, constraints, and lineage",High,,In Progress,PARTIALLY IMPLEMENTED,TMP-008,Sprint 2,BR-003; BR-004; BR-005; BR-007; FR-003; FR-006; FR-007; FR-008; FR-009; FR-011
-TMP-008-ST02,Sub-task,TMP-008-ST02,,TMP-EP04,TMP-008,Confirm financial types and retention/optimization choices,"Expected output: Completed evidence for confirm financial types and retention/optimization choices
-Dependency: TMP-008.",Completed evidence for confirm financial types and retention/optimization choices,High,,In Progress,PARTIALLY IMPLEMENTED,TMP-008,Sprint 2,BR-003; BR-004; BR-005; BR-007; FR-003; FR-006; FR-007; FR-008; FR-009; FR-011
-TMP-009-ST01,Sub-task,TMP-009-ST01,,TMP-EP05,TMP-009,Build wheel and validate Bundle configuration,"Expected output: Completed evidence for build wheel and validate bundle configuration
+TMP-008-ST01,Sub-task,TMP-008-ST01,,TMP-EP02,TMP-008,"Validate table grains, keys, constraints, and lineage","Expected output: Completed evidence for validate table grains, keys, constraints, and lineage
+Dependency: TMP-008.","Completed evidence for validate table grains, keys, constraints, and lineage",High,,To Do,NOT VERIFIED,TMP-008,Sprint 5,BR-003; BR-004; BR-005; BR-007; FR-003; FR-006; FR-007; FR-008; FR-009; FR-011
+TMP-008-ST02,Sub-task,TMP-008-ST02,,TMP-EP02,TMP-008,Confirm financial types and retention/optimization choices,"Expected output: Completed evidence for confirm financial types and retention/optimization choices
+Dependency: TMP-008.",Completed evidence for confirm financial types and retention/optimization choices,High,,To Do,NOT VERIFIED,TMP-008,Sprint 5,BR-003; BR-004; BR-005; BR-007; FR-003; FR-006; FR-007; FR-008; FR-009; FR-011
+TMP-009-ST01,Sub-task,TMP-009-ST01,,TMP-EP03,TMP-009,Build wheel and validate Bundle configuration,"Expected output: Completed evidence for build wheel and validate bundle configuration
 Dependency: TMP-009.",Completed evidence for build wheel and validate bundle configuration,High,,Done,IMPLEMENTED,TMP-009,,BR-008; FR-012
-TMP-009-ST02,Sub-task,TMP-009-ST02,,TMP-EP05,TMP-009,Deploy dev bundle and capture run evidence,"Expected output: Completed evidence for deploy dev bundle and capture run evidence
+TMP-009-ST02,Sub-task,TMP-009-ST02,,TMP-EP03,TMP-009,Deploy dev bundle and capture run evidence,"Expected output: Completed evidence for deploy dev bundle and capture run evidence
 Dependency: TMP-009.",Completed evidence for deploy dev bundle and capture run evidence,High,,Done,IMPLEMENTED,TMP-009,,BR-008; FR-012
-TMP-010-ST01,Sub-task,TMP-010-ST01,,TMP-EP05,TMP-010,Add package/test/Bundle validation pipeline,"Expected output: Completed evidence for add package/test/bundle validation pipeline
+TMP-010-ST01,Sub-task,TMP-010-ST01,,TMP-EP03,TMP-010,Add package/test/Bundle validation pipeline,"Expected output: Completed evidence for add package/test/bundle validation pipeline
 Dependency: TMP-010.",Completed evidence for add package/test/bundle validation pipeline,High,,To Do,PLANNED,TMP-010,Sprint 3,BR-007; BR-008; FR-012; FR-013
-TMP-010-ST02,Sub-task,TMP-010-ST02,,TMP-EP05,TMP-010,"Define artifact promotion, approvals, and rollback evidence","Expected output: Completed evidence for define artifact promotion, approvals, and rollback evidence
+TMP-010-ST02,Sub-task,TMP-010-ST02,,TMP-EP03,TMP-010,"Define artifact promotion, approvals, and rollback evidence","Expected output: Completed evidence for define artifact promotion, approvals, and rollback evidence
 Dependency: TMP-010.","Completed evidence for define artifact promotion, approvals, and rollback evidence",High,,To Do,PLANNED,TMP-010,Sprint 3,BR-007; BR-008; FR-012; FR-013
-TMP-011-ST01,Sub-task,TMP-011-ST01,,TMP-EP06,TMP-011,Validate file schema and structural integrity,"Expected output: Completed evidence for validate file schema and structural integrity
+TMP-011-ST01,Sub-task,TMP-011-ST01,,TMP-EP04,TMP-011,Validate file schema and structural integrity,"Expected output: Completed evidence for validate file schema and structural integrity
 Dependency: TMP-011.",Completed evidence for validate file schema and structural integrity,High,,Done,IMPLEMENTED,TMP-011,,BR-001; BR-003; FR-001; FR-013
-TMP-011-ST02,Sub-task,TMP-011-ST02,,TMP-EP06,TMP-011,Write and audit distinct full-snapshot Bronze rows,"Expected output: Completed evidence for write and audit distinct full-snapshot bronze rows
+TMP-011-ST02,Sub-task,TMP-011-ST02,,TMP-EP04,TMP-011,Write and audit distinct full-snapshot Bronze rows,"Expected output: Completed evidence for write and audit distinct full-snapshot bronze rows
 Dependency: TMP-011.",Completed evidence for write and audit distinct full-snapshot bronze rows,High,,Done,IMPLEMENTED,TMP-011,,BR-001; BR-003; FR-001; FR-013
-TMP-012-ST01,Sub-task,TMP-012-ST01,,TMP-EP06,TMP-012,Select append-only event or snapshot reconciliation approach,"Expected output: Completed evidence for select append-only event or snapshot reconciliation approach
+TMP-012-ST01,Sub-task,TMP-012-ST01,,TMP-EP04,TMP-012,Select append-only event or snapshot reconciliation approach,"Expected output: Completed evidence for select append-only event or snapshot reconciliation approach
 Dependency: TMP-012.",Completed evidence for select append-only event or snapshot reconciliation approach,High,,To Do,PLANNED,TMP-012,Sprint 3,BR-003; BR-004; BR-005; FR-004; FR-009; FR-013
-TMP-012-ST02,Sub-task,TMP-012-ST02,,TMP-EP06,TMP-012,Implement and test disappearance/cancellation/correction cases,"Expected output: Completed evidence for implement and test disappearance/cancellation/correction cases
+TMP-012-ST02,Sub-task,TMP-012-ST02,,TMP-EP04,TMP-012,Implement and test disappearance/cancellation/correction cases,"Expected output: Completed evidence for implement and test disappearance/cancellation/correction cases
 Dependency: TMP-012.",Completed evidence for implement and test disappearance/cancellation/correction cases,High,,To Do,PLANNED,TMP-012,Sprint 3,BR-003; BR-004; BR-005; FR-004; FR-009; FR-013
-TMP-013-ST01,Sub-task,TMP-013-ST01,,TMP-EP07,TMP-013,Normalize daily provider payload and date range,"Expected output: Completed evidence for normalize daily provider payload and date range
+TMP-013-ST01,Sub-task,TMP-013-ST01,,TMP-EP04,TMP-013,Normalize daily provider payload and date range,"Expected output: Completed evidence for normalize daily provider payload and date range
 Dependency: TMP-013.",Completed evidence for normalize daily provider payload and date range,High,,Done,IMPLEMENTED,TMP-013,,BR-002; FR-002; FR-013
-TMP-013-ST02,Sub-task,TMP-013-ST02,,TMP-EP07,TMP-013,Merge price history and audit source outcomes,"Expected output: Completed evidence for merge price history and audit source outcomes
+TMP-013-ST02,Sub-task,TMP-013-ST02,,TMP-EP04,TMP-013,Merge price history and audit source outcomes,"Expected output: Completed evidence for merge price history and audit source outcomes
 Dependency: TMP-013.",Completed evidence for merge price history and audit source outcomes,High,,Done,IMPLEMENTED,TMP-013,,BR-002; FR-002; FR-013
-TMP-014-ST01,Sub-task,TMP-014-ST01,,TMP-EP07,TMP-014,Define deterministic test source and provider configuration,"Expected output: Completed evidence for define deterministic test source and provider configuration
-Dependency: TMP-014.",Completed evidence for define deterministic test source and provider configuration,High,,To Do,PLANNED,TMP-014,Sprint 2,BR-002; BR-005; BR-007; FR-002; FR-005; FR-007; FR-013
-TMP-014-ST02,Sub-task,TMP-014-ST02,,TMP-EP07,TMP-014,"Document missing-price triage, correction, and retry behavior","Expected output: Completed evidence for document missing-price triage, correction, and retry behavior
-Dependency: TMP-014.","Completed evidence for document missing-price triage, correction, and retry behavior",High,,To Do,PLANNED,TMP-014,Sprint 2,BR-002; BR-005; BR-007; FR-002; FR-005; FR-007; FR-013
-TMP-015-ST01,Sub-task,TMP-015-ST01,,TMP-EP08,TMP-015,Cast and validate typed trade/price values,"Expected output: Completed evidence for cast and validate typed trade/price values
+TMP-014-ST01,Sub-task,TMP-014-ST01,,TMP-EP04,TMP-014,Define deterministic test source and provider configuration,"Expected output: Completed evidence for define deterministic test source and provider configuration
+Dependency: TMP-014.",Completed evidence for define deterministic test source and provider configuration,High,,To Do,PLANNED,TMP-014,Sprint 5,BR-002; BR-005; BR-007; FR-002; FR-005; FR-007; FR-013
+TMP-014-ST02,Sub-task,TMP-014-ST02,,TMP-EP04,TMP-014,"Document missing-price triage, correction, and retry behavior","Expected output: Completed evidence for document missing-price triage, correction, and retry behavior
+Dependency: TMP-014.","Completed evidence for document missing-price triage, correction, and retry behavior",High,,To Do,PLANNED,TMP-014,Sprint 5,BR-002; BR-005; BR-007; FR-002; FR-005; FR-007; FR-013
+TMP-015-ST01,Sub-task,TMP-015-ST01,,TMP-EP04,TMP-015,Cast and validate typed trade/price values,"Expected output: Completed evidence for cast and validate typed trade/price values
 Dependency: TMP-015.",Completed evidence for cast and validate typed trade/price values,High,,Done,IMPLEMENTED,TMP-015,,BR-003; BR-007; FR-003; FR-004; FR-005; FR-013
-TMP-015-ST02,Sub-task,TMP-015-ST02,,TMP-EP08,TMP-015,Apply dedupe/version rules and idempotent reject MERGE,"Expected output: Completed evidence for apply dedupe/version rules and idempotent reject merge
+TMP-015-ST02,Sub-task,TMP-015-ST02,,TMP-EP04,TMP-015,Apply dedupe/version rules and idempotent reject MERGE,"Expected output: Completed evidence for apply dedupe/version rules and idempotent reject merge
 Dependency: TMP-015.",Completed evidence for apply dedupe/version rules and idempotent reject merge,High,,Done,IMPLEMENTED,TMP-015,,BR-003; BR-007; FR-003; FR-004; FR-005; FR-013
-TMP-016-ST01,Sub-task,TMP-016-ST01,,TMP-EP08,TMP-016,Execute Spark/Delta tests in a provisioned environment,"Expected output: Completed evidence for execute spark/delta tests in a provisioned environment
-Dependency: TMP-016.",Completed evidence for execute spark/delta tests in a provisioned environment,High,,To Do,PLANNED,TMP-016,Sprint 2,BR-003; BR-007; BR-008; FR-003; FR-005; FR-009; FR-013
-TMP-016-ST02,Sub-task,TMP-016-ST02,,TMP-EP08,TMP-016,Run same-input job twice and compare business outputs,"Expected output: Completed evidence for run same-input job twice and compare business outputs
-Dependency: TMP-016.",Completed evidence for run same-input job twice and compare business outputs,High,,To Do,PLANNED,TMP-016,Sprint 2,BR-003; BR-007; BR-008; FR-003; FR-005; FR-009; FR-013
-TMP-017-ST01,Sub-task,TMP-017-ST01,,TMP-EP09,TMP-017,Aggregate daily flows and cumulative positions,"Expected output: Completed evidence for aggregate daily flows and cumulative positions
+TMP-016-ST01,Sub-task,TMP-016-ST01,,TMP-EP06,TMP-016,Execute Spark/Delta tests in a provisioned environment,"Expected output: Completed evidence for execute spark/delta tests in a provisioned environment
+Dependency: TMP-016.",Completed evidence for execute spark/delta tests in a provisioned environment,High,,To Do,PLANNED,TMP-016,Sprint 4,BR-003; BR-007; BR-008; FR-003; FR-005; FR-009; FR-013
+TMP-016-ST02,Sub-task,TMP-016-ST02,,TMP-EP06,TMP-016,Run same-input job twice and compare business outputs,"Expected output: Completed evidence for run same-input job twice and compare business outputs
+Dependency: TMP-016.",Completed evidence for run same-input job twice and compare business outputs,High,,To Do,PLANNED,TMP-016,Sprint 4,BR-003; BR-007; BR-008; FR-003; FR-005; FR-009; FR-013
+TMP-017-ST01,Sub-task,TMP-017-ST01,,TMP-EP05,TMP-017,Aggregate daily flows and cumulative positions,"Expected output: Completed evidence for aggregate daily flows and cumulative positions
 Dependency: TMP-017.",Completed evidence for aggregate daily flows and cumulative positions,High,,Done,IMPLEMENTED,TMP-017,,BR-004; BR-005; FR-006; FR-007; FR-009
-TMP-017-ST02,Sub-task,TMP-017-ST02,,TMP-EP09,TMP-017,Value at exact-date close and reconcile history,"Expected output: Completed evidence for value at exact-date close and reconcile history
+TMP-017-ST02,Sub-task,TMP-017-ST02,,TMP-EP05,TMP-017,Value at exact-date close and reconcile history,"Expected output: Completed evidence for value at exact-date close and reconcile history
 Dependency: TMP-017.",Completed evidence for value at exact-date close and reconcile history,High,,Done,IMPLEMENTED,TMP-017,,BR-004; BR-005; FR-006; FR-007; FR-009
-TMP-018-ST01,Sub-task,TMP-018-ST01,,TMP-EP10,TMP-018,Calculate opening inventory price move and trade-day term,"Expected output: Completed evidence for calculate opening inventory price move and trade-day term
+TMP-018-ST01,Sub-task,TMP-018-ST01,,TMP-EP05,TMP-018,Calculate opening inventory price move and trade-day term,"Expected output: Completed evidence for calculate opening inventory price move and trade-day term
 Dependency: TMP-018.",Completed evidence for calculate opening inventory price move and trade-day term,High,,Done,IMPLEMENTED,TMP-018,,BR-005; FR-007; FR-008; FR-009
-TMP-018-ST02,Sub-task,TMP-018-ST02,,TMP-EP10,TMP-018,Reconcile output and label simplified P&L limitations,"Expected output: Completed evidence for reconcile output and label simplified p&l limitations
+TMP-018-ST02,Sub-task,TMP-018-ST02,,TMP-EP05,TMP-018,Reconcile output and label simplified P&L limitations,"Expected output: Completed evidence for reconcile output and label simplified p&l limitations
 Dependency: TMP-018.",Completed evidence for reconcile output and label simplified p&l limitations,High,,Done,IMPLEMENTED,TMP-018,,BR-005; FR-007; FR-008; FR-009
-TMP-019-ST01,Sub-task,TMP-019-ST01,,TMP-EP11,TMP-019,Trigger and monitor controlled Job execution,"Expected output: Completed evidence for trigger and monitor controlled job execution
+TMP-019-ST01,Sub-task,TMP-019-ST01,,TMP-EP06,TMP-019,Trigger and monitor controlled Job execution,"Expected output: Completed evidence for trigger and monitor controlled job execution
 Dependency: TMP-019.",Completed evidence for trigger and monitor controlled job execution,Medium,,Done,IMPLEMENTED,TMP-019,,BR-006; BR-007; BR-008; FR-010; FR-011; FR-012
-TMP-019-ST02,Sub-task,TMP-019-ST02,,TMP-EP11,TMP-019,"Report audit, rejects, Gold outcomes, and unavailable metrics","Expected output: Completed evidence for report audit, rejects, gold outcomes, and unavailable metrics
+TMP-019-ST02,Sub-task,TMP-019-ST02,,TMP-EP06,TMP-019,"Report audit, rejects, Gold outcomes, and unavailable metrics","Expected output: Completed evidence for report audit, rejects, gold outcomes, and unavailable metrics
 Dependency: TMP-019.","Completed evidence for report audit, rejects, gold outcomes, and unavailable metrics",Medium,,Done,IMPLEMENTED,TMP-019,,BR-006; BR-007; BR-008; FR-010; FR-011; FR-012
-TMP-020-ST01,Sub-task,TMP-020-ST01,,TMP-EP11,TMP-020,Agree dashboard user journeys and query model,"Expected output: Completed evidence for agree dashboard user journeys and query model
-Dependency: TMP-020.",Completed evidence for agree dashboard user journeys and query model,Medium,,To Do,PLANNED,TMP-020,Sprint 4,BR-006; FR-010
-TMP-020-ST02,Sub-task,TMP-020-ST02,,TMP-EP11,TMP-020,"Build, permission, and reconcile dashboard views","Expected output: Completed evidence for build, permission, and reconcile dashboard views
-Dependency: TMP-020.","Completed evidence for build, permission, and reconcile dashboard views",Medium,,To Do,PLANNED,TMP-020,Sprint 4,BR-006; FR-010
-TMP-021-ST01,Sub-task,TMP-021-ST01,,TMP-EP12,TMP-021,Run and triage current unit/static test suite,"Expected output: Completed evidence for run and triage current unit/static test suite
-Dependency: TMP-021.",Completed evidence for run and triage current unit/static test suite,High,,In Progress,PARTIALLY IMPLEMENTED,TMP-021,,BR-001; BR-002; BR-003; BR-004; BR-005; BR-007; FR-001; FR-002; FR-003; FR-004; FR-005; FR-006; FR-007; FR-008
-TMP-021-ST02,Sub-task,TMP-021-ST02,,TMP-EP12,TMP-021,Update stale DDL test paths and maintain focused rule tests,"Expected output: Completed evidence for update stale ddl test paths and maintain focused rule tests
-Dependency: TMP-021.",Completed evidence for update stale ddl test paths and maintain focused rule tests,High,,In Progress,PARTIALLY IMPLEMENTED,TMP-021,,BR-001; BR-002; BR-003; BR-004; BR-005; BR-007; FR-001; FR-002; FR-003; FR-004; FR-005; FR-006; FR-007; FR-008
-TMP-022-ST01,Sub-task,TMP-022-ST01,,TMP-EP12,TMP-022,Re-run independent position and P&L reconciliation,"Expected output: Completed evidence for re-run independent position and p&l reconciliation
+TMP-020-ST01,Sub-task,TMP-020-ST01,,TMP-EP06,TMP-020,Agree dashboard user journeys and query model,"Expected output: Completed evidence for agree dashboard user journeys and query model
+Dependency: TMP-020.",Completed evidence for agree dashboard user journeys and query model,Medium,,Blocked,BLOCKED,TMP-020,Sprint 5,BR-006; FR-010
+TMP-020-ST02,Sub-task,TMP-020-ST02,,TMP-EP06,TMP-020,"Build, permission, and reconcile dashboard views","Expected output: Completed evidence for build, permission, and reconcile dashboard views
+Dependency: TMP-020.","Completed evidence for build, permission, and reconcile dashboard views",Medium,,Blocked,BLOCKED,TMP-020,Sprint 5,BR-006; FR-010
+TMP-021-ST01,Sub-task,TMP-021-ST01,,TMP-EP06,TMP-021,Run and triage current unit/static test suite,"Expected output: Completed evidence for run and triage current unit/static test suite
+Dependency: TMP-021.",Completed evidence for run and triage current unit/static test suite,High,,In Progress,PARTIALLY IMPLEMENTED,TMP-021,Sprint 4,BR-001; BR-002; BR-003; BR-004; BR-005; BR-007; FR-001; FR-002; FR-003; FR-004; FR-005; FR-006; FR-007; FR-008
+TMP-021-ST02,Sub-task,TMP-021-ST02,,TMP-EP06,TMP-021,Update stale DDL test paths and maintain focused rule tests,"Expected output: Completed evidence for update stale ddl test paths and maintain focused rule tests
+Dependency: TMP-021.",Completed evidence for update stale ddl test paths and maintain focused rule tests,High,,In Progress,PARTIALLY IMPLEMENTED,TMP-021,Sprint 4,BR-001; BR-002; BR-003; BR-004; BR-005; BR-007; FR-001; FR-002; FR-003; FR-004; FR-005; FR-006; FR-007; FR-008
+TMP-022-ST01,Sub-task,TMP-022-ST01,,TMP-EP06,TMP-022,Re-run independent position and P&L reconciliation,"Expected output: Completed evidence for re-run independent position and p&l reconciliation
 Dependency: TMP-022.",Completed evidence for re-run independent position and p&l reconciliation,High,,In Progress,PARTIALLY IMPLEMENTED,TMP-022,Sprint 4,BR-003; BR-004; BR-005; BR-006; FR-006; FR-007; FR-008; FR-009; FR-010; FR-013
-TMP-022-ST02,Sub-task,TMP-022-ST02,,TMP-EP12,TMP-022,Obtain business acceptance and capture rerun evidence,"Expected output: Completed evidence for obtain business acceptance and capture rerun evidence
+TMP-022-ST02,Sub-task,TMP-022-ST02,,TMP-EP06,TMP-022,Obtain business acceptance and capture rerun evidence,"Expected output: Completed evidence for obtain business acceptance and capture rerun evidence
 Dependency: TMP-022.",Completed evidence for obtain business acceptance and capture rerun evidence,High,,In Progress,PARTIALLY IMPLEMENTED,TMP-022,Sprint 4,BR-003; BR-004; BR-005; BR-006; FR-006; FR-007; FR-008; FR-009; FR-010; FR-013
-TMP-023-ST01,Sub-task,TMP-023-ST01,,TMP-EP13,TMP-023,"Verify run parameters, concurrency, retries, and task dependencies","Expected output: Completed evidence for verify run parameters, concurrency, retries, and task dependencies
-Dependency: TMP-023.","Completed evidence for verify run parameters, concurrency, retries, and task dependencies",High,,In Progress,PARTIALLY IMPLEMENTED,TMP-023,,BR-007; BR-008; FR-011; FR-012; FR-013
-TMP-023-ST02,Sub-task,TMP-023-ST02,,TMP-EP13,TMP-023,Document schedule gate and manual recovery controls,"Expected output: Completed evidence for document schedule gate and manual recovery controls
-Dependency: TMP-023.",Completed evidence for document schedule gate and manual recovery controls,High,,In Progress,PARTIALLY IMPLEMENTED,TMP-023,,BR-007; BR-008; FR-011; FR-012; FR-013
-TMP-024-ST01,Sub-task,TMP-024-ST01,,TMP-EP13,TMP-024,"Define alert rules, support rota, and escalation process","Expected output: Completed evidence for define alert rules, support rota, and escalation process
+TMP-023-ST01,Sub-task,TMP-023-ST01,,TMP-EP07,TMP-023,"Verify run parameters, concurrency, retries, and task dependencies","Expected output: Completed evidence for verify run parameters, concurrency, retries, and task dependencies
+Dependency: TMP-023.","Completed evidence for verify run parameters, concurrency, retries, and task dependencies",High,,In Progress,PARTIALLY IMPLEMENTED,TMP-023,Sprint 2,BR-007; BR-008; FR-011; FR-012; FR-013
+TMP-023-ST02,Sub-task,TMP-023-ST02,,TMP-EP07,TMP-023,Document schedule gate and manual recovery controls,"Expected output: Completed evidence for document schedule gate and manual recovery controls
+Dependency: TMP-023.",Completed evidence for document schedule gate and manual recovery controls,High,,In Progress,PARTIALLY IMPLEMENTED,TMP-023,Sprint 2,BR-007; BR-008; FR-011; FR-012; FR-013
+TMP-024-ST01,Sub-task,TMP-024-ST01,,TMP-EP07,TMP-024,"Define alert rules, support rota, and escalation process","Expected output: Completed evidence for define alert rules, support rota, and escalation process
 Dependency: TMP-024.","Completed evidence for define alert rules, support rota, and escalation process",High,,To Do,PLANNED,TMP-024,Sprint 4,BR-007; BR-008; FR-011; FR-012; FR-013
-TMP-024-ST02,Sub-task,TMP-024-ST02,,TMP-EP13,TMP-024,Write recovery/runbook and conduct handover walkthrough,"Expected output: Completed evidence for write recovery/runbook and conduct handover walkthrough
+TMP-024-ST02,Sub-task,TMP-024-ST02,,TMP-EP07,TMP-024,Write recovery/runbook and conduct handover walkthrough,"Expected output: Completed evidence for write recovery/runbook and conduct handover walkthrough
 Dependency: TMP-024.",Completed evidence for write recovery/runbook and conduct handover walkthrough,High,,To Do,PLANNED,TMP-024,Sprint 4,BR-007; BR-008; FR-011; FR-012; FR-013

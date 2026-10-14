@@ -1,39 +1,59 @@
-# Trading Platform SDLC Deliverables
+# Project Management Report Generator
 
-Generated on 2026-10-14 from the repository implementation and the structured planning data in `generate_deliverables.py`.
+## Source Workbook
 
-## Files
+Edit [Trading_Project_Master.xlsx](Trading_Project_Master.xlsx). It is the single editable source for project requirements, data sources and dictionary, epics/stories/subtasks, dependencies, sprints, architecture, tests, RAID, milestones, stakeholders/RACI, governance, and decisions.
 
-- `Trading_Platform_Project_Plan.xlsx` — executive summary, business/functional/NFR requirements, sources, DDL-derived dictionary (138 physical columns across 10 tables), backlog, acceptance criteria, dependencies, sprints/Gantt, milestones, RAID, traceability, tests, and current-state evidence.
-- `Trading_Platform_Architecture.pptx` — current and target architecture, sources, data flow, model, calculations, workflow, deployment, and explicit gaps.
-- `Trading_Platform_Delivery_Overview.pptx` — executive delivery plan, traceability, Jira hierarchy, critical path, sprint plan, risks, current status, and next steps.
-- `jira-backlog.csv` — 85 Jira planning rows (epics, stories, subtasks) with acceptance criteria and dependencies.
-- `Trading_Platform_Project_Deliverables.html` — a self-contained, navigable consolidation of every workbook worksheet, presentation text, Jira CSV record, and this README.
-- `generate_deliverables.py` — single structured source for requirements, stories, dependencies, status, sprint plan, risks, decisions, test plan, and presentation content. The dictionary is extracted from `database/tables/**/*.sql` at generation time.
+Normal report generation never writes to the master workbook. Keep a version-controlled backup before changing project data. Do not edit generated files under `output/`; regenerate them from the master instead.
 
-## Regenerate
+## Editable Worksheets
 
-From the repository root, install the two document libraries into the selected Python environment and run:
+- `Project_Overview`: title, purpose, evidence baseline, status dashboard, and decisions required.
+- `Requirements`: BR, FR, and NFR rows. IDs must be unique; each BR's related IDs must resolve to FR IDs; each FR has a valid parent BR and story references.
+- `Data_Sources` and `Data_Dictionary`: source contracts and physical/logical column definitions. The current dictionary has 138 physical columns across 10 tables; update it in the master when definitions change.
+- `Jira_Backlog`: epics, stories, and subtasks. Issue IDs are stable planning IDs. Stories require positive story points, acceptance criteria, a valid epic, and valid BR/FR/dependency references. Subtasks require a valid story parent and matching epic.
+- `Delivery_Plan`: `WORKSTREAM` rows drive the Gantt; `STORY` rows retain story-level schedule inputs. Activity IDs must be unique and each baseline story must map once. Sprint windows are planning allocations, not activity durations.
+- `Milestones`, `RAID`, `Stakeholders_RACI`, `Test_Plan`, `Architecture`, `NFRs`, `Sprints`, `Dependencies`, `Decisions`, `Governance`, `Change_Control`, `TPM_Scenarios`, and `Resource_Capacity` maintain supporting delivery information.
+
+## Relationships and Validation
+
+Separate multiple IDs in a cell with semicolons. `Jira_Backlog.Dependencies` contains predecessor story IDs. `Requirements.Related IDs` links BRs to FRs and FRs to stories. `Delivery_Plan.Story IDs` maps workstreams to stories. Milestone dependencies use story IDs. Architecture task predecessors use `Component ID` values.
+
+The generator checks required sheets and columns, unique requirement/Jira/milestone/architecture IDs, parent and epic relationships, requirement references, dependency references and cycles, acceptance criteria, positive story points, sprint allocations, capacity limits, and workstream mappings. Any critical validation error stops report publication.
+
+## Generate and Validate
+
+Run from the repository root:
 
 ```powershell
-python -m pip install openpyxl python-pptx
 python docs/project-management/generate_deliverables.py
 ```
 
-The generator uses the repository's physical table DDL as the data dictionary schema source. Update the `PLAN`, `TABLE_META`, or `COLUMN_META` records in the generator when requirements or enriched descriptions change; rerun it to regenerate all deliverables. No application code is changed.
+Optional arguments support a test copy of the workbook and a separate output location:
 
-## Evidence and unsupported assumptions
+```powershell
+python docs/project-management/generate_deliverables.py --master-workbook path/to/test-copy.xlsx --output-dir path/to/test-output
+```
 
-- Verified current implementation is distinguished from partial, planned, and unconfirmed work throughout the workbook and decks.
-- The checked-in test report records a successful six-task Databricks run on 2026-10-11, including independent position/P&L reconciliation; the attempted second same-parameter run was still queued and is therefore unverified.
-- A focused local test run confirmed 3 failures from stale references to removed `trades_constraints.sql` and `market_prices_constraints.sql`; the current CHECK constraints are consolidated into the Silver table DDL. The full suite summary was not captured. Spark/Delta tests require a supported runtime; do not represent skips as passes.
-- Yahoo Finance is the current prototype provider, not an assumed approved banking data source. Trade data is synthetic. Production market-data rights, source contracts, volume/SLA, security identity, environments, retention, RTO/RPO, dashboard audience, and support ownership require confirmation.
-- The eight-week schedule is relative and proposed, assumes 10 story points per sprint, and has no reserve. Dates are not commitments. The configured Databricks schedule remains paused until operational readiness approval.
+The generator reads the workbook with `openpyxl`, builds reports in a temporary directory, validates them, then publishes the output directory only if generation succeeds. If validation fails, the previously published output directory is preserved. The output directory must not contain the master workbook.
 
-## Jira import mapping
+## Generated Files
 
-This is a planning CSV, not a guaranteed one-click Jira import. `Issue ID` and `Planning Key` values are temporary identifiers, not Jira-generated issue keys. Map `Planning Key` to a text custom field; map `Issue Type`, `Summary`, `Description`, `Priority`, `Status`, `Story Points`, and `Sprint` to the destination Jira fields. Map `Epic Name` and `Epic Link` to the destination edition's epic fields. Map `Parent ID` to the parent relationship field for subtasks; some Jira importers require numeric issue IDs or a separate import pass. Import epics first, capture created Jira keys, then resolve temporary Epic Link references before importing stories and subtasks. `Dependencies` contains planning IDs and should be imported as issue links only after IDs resolve. Confirm required fields, status names, story-point field, hierarchy support, and project permissions with the Jira administrator before import.
+Reports are published to `docs/project-management/output/`:
 
-## Workbook notes
+- `Trading_Platform_Project_Plan.xlsx`
+- `Trading_Platform_Architecture.pptx`
+- `Trading_Platform_Delivery_Overview.pptx`
+- `jira-backlog.csv`
+- `Trading_Platform_Project_Deliverables.html`
+- Generated report `README.md`
 
-Filters, frozen headers, dropdown validations, conditional formatting, formula-driven sprint totals, and a formula/conditional-format Gantt are included. Excel recalculates formulas when opened. The Gantt uses relative weeks 1-8; no kickoff date was supplied.
+The editable master remains at `docs/project-management/Trading_Project_Master.xlsx` and is never part of the generated output directory.
+
+## Jira Cloud Import
+
+The CSV uses internal planning IDs; these are not Jira issue keys. Map `Issue Type`, `Summary`, `Description`, `Acceptance Criteria`, `Priority`, `Story Points`, `Status`, and `Sprint` to the target project fields. Map `Epic Name`, `Epic Link`, `Parent ID`, and `Dependencies` to the Jira edition's hierarchy and issue-link fields. Some Jira Cloud imports require a separate pass: import epics, capture Jira keys, then resolve epic/parent/link references. Configure the ID matching field and required fields with the Jira administrator. CSV import does not automatically update existing Jira issues unless matching keys and update behavior are explicitly configured.
+
+## Evidence Boundaries
+
+The project is a technical proof of concept. The current trade input is synthetic and the prototype market-data provider is Yahoo Finance; production rights/contracts are not confirmed. The checked-in evidence documents one successful six-task run on 2026-10-11; its same-input follow-up was queued and has no result recorded. A focused test run identified three stale references to removed Silver constraint scripts. The schedule is relative, proposed, and not a commitment; its Gantt shows sprint windows and does not calculate CPM dates or float.

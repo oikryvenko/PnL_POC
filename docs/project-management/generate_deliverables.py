@@ -8,9 +8,15 @@ The DDL-backed data dictionary is read from database/tables at generation time.
 
 from __future__ import annotations
 
+import argparse
 import csv
 import html as html_lib
+import logging
+import os
 import re
+import shutil
+import tempfile
+import uuid
 from collections import defaultdict
 from pathlib import Path
 
@@ -26,8 +32,12 @@ from pptx.util import Inches, Pt
 
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = Path(__file__).resolve().parent
+PROJECT_DIR = Path(__file__).resolve().parent
+MASTER_PATH = PROJECT_DIR / "Trading_Project_Master.xlsx"
+OUTPUT_DIR = PROJECT_DIR / "output"
+OUT = PROJECT_DIR
 AS_OF = "2026-10-14"
+logger = logging.getLogger("project_management_generator")
 
 NAVY = "16324F"
 TEAL = "007C78"
@@ -44,237 +54,155 @@ WHITE = "FFFFFF"
 GRID = "D7E0E5"
 
 
-# Authoritative business and delivery plan. Workbook, decks, and Jira CSV all
-# consume these same records; status values deliberately distinguish evidence
-# from target work.
-PLAN = {
-    "title": "Trading Platform Project Plan",
-    "purpose": "Databricks trading data processing and daily P&L proof of concept",
-    "status_legend": ["IMPLEMENTED", "PARTIALLY IMPLEMENTED", "PLANNED", "TO BE CONFIRMED"],
-    "business_requirements": [
-        {"id": "BR-001", "description": "Ingest trade transactions from an agreed source.", "why": "Provide complete, traceable trade activity for positions and P&L.", "priority": "Must", "acceptance": "A valid input snapshot is recorded in Bronze with source and run lineage; invalid file structure fails before replacing the prior snapshot.", "dependencies": "Trade source contract; Unity Catalog Volume", "status": "IMPLEMENTED", "fr": ["FR-001", "FR-003", "FR-004", "FR-005", "FR-013"]},
-        {"id": "BR-002", "description": "Ingest daily market prices for supported instruments.", "why": "Provide valuation marks and P&L inputs.", "priority": "Must", "acceptance": "Requested daily prices are recorded with source/date/currency lineage; missing expected sessions are visible and block incomplete Silver publication.", "dependencies": "Provider availability and ticker universe", "status": "IMPLEMENTED", "fr": ["FR-002", "FR-003", "FR-005", "FR-013"]},
-        {"id": "BR-003", "description": "Maintain accurate trade records, including corrections and duplicates.", "why": "Prevent stale or ambiguous executions from contaminating financial results.", "priority": "Must", "acceptance": "One latest valid version per trade_id is used; invalid/ambiguous latest versions are excluded and explained; source-history limitations are disclosed.", "dependencies": "Trade version contract; immutable source history decision", "status": "PARTIALLY IMPLEMENTED", "fr": ["FR-004", "FR-005", "FR-009", "FR-013"]},
-        {"id": "BR-004", "description": "Calculate historical and daily positions by date, book, counterparty, instrument, and currency.", "why": "Give trading users a reproducible inventory view.", "priority": "Must", "acceptance": "Daily signed net quantities reconcile to accepted trades and carry forward on expected sessions; source corrections update affected dates.", "dependencies": "Validated trades; supported trading calendar", "status": "IMPLEMENTED", "fr": ["FR-006", "FR-007", "FR-009"]},
-        {"id": "BR-005", "description": "Calculate daily position valuation and daily P&L.", "why": "Provide transparent daily equity valuation and trading P&L.", "priority": "Must", "acceptance": "Gold contains daily valuation and decomposed daily P&L; missing marks/baselines remain NULL with breaks; quantity changes are not misattributed to price movement.", "dependencies": "Positions; validated price history; approved methodology", "status": "IMPLEMENTED", "fr": ["FR-007", "FR-008", "FR-009"]},
-        {"id": "BR-006", "description": "Provide trading, P&L, and operational reporting.", "why": "Make outcomes and exceptions accessible to users.", "priority": "Should", "acceptance": "Read-only report/query surfaces expose run status, rejects, positions, P&L, and breaks; a dashboard is delivered only after user acceptance criteria are agreed.", "dependencies": "Reporting requirements; Gold datasets", "status": "PARTIALLY IMPLEMENTED", "fr": ["FR-010", "FR-011"]},
-        {"id": "BR-007", "description": "Support operational monitoring, auditability, and error investigation.", "why": "Make failed and incomplete processing diagnosable.", "priority": "Must", "acceptance": "Every task attempt records status, timestamps, row counts, issue counts, and error details; valuation breaks and rejects retain lineage.", "dependencies": "Audit and reject tables; operations ownership", "status": "PARTIALLY IMPLEMENTED", "fr": ["FR-005", "FR-011", "FR-012", "FR-013"]},
-        {"id": "BR-008", "description": "Automate repeatable daily processing with controlled reruns.", "why": "Reduce manual handling and support predictable delivery.", "priority": "Must", "acceptance": "A parameterized workflow executes the dependency graph; retry/rerun behavior is tested; production schedule remains disabled until readiness sign-off.", "dependencies": "Production environment, source SLA, support model", "status": "PARTIALLY IMPLEMENTED", "fr": ["FR-012", "FR-013"]},
-    ],
-    "functional_requirements": [
-        {"id": "FR-001", "br": "BR-001", "description": "Read the 14-column trade CSV from the configured Unity Catalog Volume as raw strings.", "input": "CSV snapshot at configured Volume path", "logic": "Validate exact header, non-empty content, and structural integrity before write; remove identical in-batch rows.", "output": "cibc.bronze.trades snapshot with source_file, ingestion_timestamp, run_id", "rules": "All source columns remain raw strings in Bronze; different trade versions remain distinct.", "errors": "Fail before overwrite for bad header, empty file, corrupt row, or unreadable source; audit failure.", "acceptance": "A valid fixture replaces Bronze with distinct raw rows and correct lineage; invalid fixtures leave the previous snapshot unchanged.", "components": "scripts/generate_trades.py; bronze/ingest_trades.py; UC Volume", "status": "IMPLEMENTED", "stories": ["TMP-011"]},
-        {"id": "FR-002", "br": "BR-002", "description": "Download daily unadjusted closing prices for requested tickers and inclusive date range.", "input": "Ticker/date parameters; yfinance public endpoint", "logic": "Retry transient provider exceptions up to 3 attempts; normalize response shapes; record close, USD, source API, ingestion timestamp, run id.", "output": "cibc.bronze.market_prices", "rules": "Default 10 configured symbols and seven-day lookback; no credentials currently used.", "errors": "Fail on empty expected response, missing ticker, malformed or ambiguous response; no synthetic price is invented.", "acceptance": "Fixture tests cover flat and MultiIndex payloads; missing expected sessions are surfaced.", "components": "bronze/ingest_prices.py; yfinance", "status": "IMPLEMENTED", "stories": ["TMP-013", "TMP-014"]},
-        {"id": "FR-003", "br": "BR-001", "description": "Validate source schemas and convert raw values into typed Silver fields.", "input": "Bronze trades and prices", "logic": "Use try_cast into DATE, TIMESTAMP, INT, DECIMAL(18,6), and preserve raw values in rejects.", "output": "Typed Silver trades/prices and reject tables", "rules": "Financial amounts and quantities use DECIMAL; source IDs remain STRING.", "errors": "Uncastable/invalid records are quarantined; incomplete expected price sessions prevent Silver merge.", "acceptance": "Schema and cast tests verify typed values and preserve reason codes.", "components": "silver/process_trades.py; silver/process_prices.py", "status": "IMPLEMENTED", "stories": ["TMP-015", "TMP-016"]},
-        {"id": "FR-004", "br": "BR-003", "description": "Select the highest trade version, then latest modified_timestamp, per trade_id.", "input": "Bronze trade snapshot", "logic": "Reject exact duplicates; reject conflicting ties; do not fall back when the latest version is invalid or ambiguous.", "output": "At most one accepted Silver row per trade_id", "rules": "Only trade IDs still in the new snapshot are removed when latest is unusable; absent IDs are not deleted from Silver.", "errors": "Ambiguity and unorderable version are quarantined with reason codes.", "acceptance": "Fixtures cover valid correction, exact duplicate, conflicting tie, invalid latest version, and lower version.", "components": "silver/process_trades.py; silver/trades_rejects", "status": "IMPLEMENTED", "stories": ["TMP-015", "TMP-012"]},
-        {"id": "FR-005", "br": "BR-007", "description": "Apply trade and price data-quality rules and retain actionable rejects.", "input": "Raw trade and price records", "logic": "Validate identifiers, mapping, side/quantity, positive prices, currency, dates/calendar, settlement, version, and price key uniqueness.", "output": "Silver accepted datasets, rejects with reason(s), valuation breaks", "rules": "BUY is positive and SELL is negative; only USD and configured instruments are supported.", "errors": "Reject invalid rows; fail task where missing expected prices make the requested output incomplete.", "acceptance": "Each configured invalid fixture maps to expected reason(s); reject merge is idempotent.", "components": "Silver processors; common/rejects.py; gold/break_report.py", "status": "IMPLEMENTED", "stories": ["TMP-015", "TMP-016"]},
-        {"id": "FR-006", "br": "BR-004", "description": "Calculate daily and cumulative signed positions at the defined Gold grain.", "input": "Silver accepted trades", "logic": "Aggregate daily buy/sell/net then cumulative SUM(quantity) over trading sessions by book/counterparty/instrument/currency.", "output": "cibc.gold.positions", "rules": "Position key is valuation_date + book_id + counterparty_id + instrument_id + currency; short quantities are allowed.", "errors": "Empty sources or duplicate price keys fail without publishing; source-scoped merge reconciles history.", "acceptance": "Daily/cumulative quantities match independent aggregation including no-trade days and short/flat positions.", "components": "gold/build_positions.py; gold/positions", "status": "IMPLEMENTED", "stories": ["TMP-017"]},
-        {"id": "FR-007", "br": "BR-005", "description": "Value positions using same-day close in the same currency.", "input": "Gold positions; Silver prices", "logic": "market_value = closing_position_quantity * closing_price at exact valuation date and currency.", "output": "Gold position closing_price and market_value; missing-price break", "rules": "Missing close remains NULL; quantities are unaffected; a flat/no-activity position does not require a mark.", "errors": "Missing non-flat position marks create OPEN valuation breaks.", "acceptance": "Valuation matches independent Decimal calculation; missing close produces NULL and a break.", "components": "gold/build_positions.py; gold/valuation_breaks", "status": "IMPLEMENTED", "stories": ["TMP-017"]},
-        {"id": "FR-008", "br": "BR-005", "description": "Calculate daily equity P&L separating opening-position price movement from trade-day economics.", "input": "Gold positions; Silver trades; Silver price history", "logic": "OpeningQty*(CurrentClose-PreviousClose) + (DailyNetQty*CurrentClose - SignedTradeConsideration); new positions with zero opening quantity use trade-day term only.", "output": "cibc.gold.daily_pnl with status and valuation inputs", "rules": "Latest prior close is the previous baseline; current close is exact date. Missing required current/baseline price leaves daily_pnl NULL.", "errors": "Create missing-current-price or missing-baseline break; never treat NULL as zero.", "acceptance": "Independent test examples match; activity quantity changes do not create false opening-position P&L.", "components": "gold/calculate_daily_pnl.py; gold/daily_pnl", "status": "IMPLEMENTED", "stories": ["TMP-018"]},
-        {"id": "FR-009", "br": "BR-003", "description": "Retain historical accepted prices, reject history, audit/break history, and recompute affected Gold history after corrections.", "input": "Full Silver history and correction snapshot", "logic": "Prices/rejects MERGE by business key; Gold recomputes full Silver history; changed business values update scoped Gold rows.", "output": "Historical Silver/Gold datasets and lineage", "rules": "Bronze trades is only the latest snapshot; disappeared IDs are not purged from Silver; Gold delete scope cannot remove absent instruments/symbols.", "errors": "Require reconciliation and manual remediation for missing historical scope; expose limitations.", "acceptance": "Backdated correction updates affected dates; retention and deletion semantics are documented before production.", "components": "Bronze/Silver/Gold Delta tables; Delta history", "status": "PARTIALLY IMPLEMENTED", "stories": ["TMP-012", "TMP-017", "TMP-018"]},
-        {"id": "FR-010", "br": "BR-006", "description": "Provide read-only operational and business reporting over run logs, rejects, positions, P&L, and breaks.", "input": "Gold/Silver Delta tables and Jobs API", "logic": "Existing notebook report and demo SQL show status, metrics, rejects, positions, P&L, breaks; proposed dashboard consumes curated Gold.", "output": "Notebook/SQL reporting now; dashboard dataset/view and dashboard proposed", "rules": "Do not claim Databricks SQL dashboard exists; current report is notebook-based.", "errors": "Report shows NOT AVAILABLE when audit/API data is absent rather than inventing metrics.", "acceptance": "Users reconcile report totals to tables; dashboard acceptance criteria and audience approved before build.", "components": "notebooks/02_pipeline_report.py; docs/demo_queries.sql; proposed dashboard", "status": "PARTIALLY IMPLEMENTED", "stories": ["TMP-019", "TMP-020"]},
-        {"id": "FR-011", "br": "BR-007", "description": "Audit each task attempt with run/task identity, timing, status, counts, issues, and error details.", "input": "Databricks job/task context and module metrics", "logic": "MERGE STARTED, metrics, SUCCESS/FAILED by run_id + task_run_id.", "output": "cibc.gold.pipeline_run_log; valuation_breaks; Silver reject tables", "rules": "Audit persistence failure fails the task; audit currently omits insert/update/delete/rejects_written counters.", "errors": "Capture exception type/message; if audit write itself fails log secondary exception.", "acceptance": "Success and failure paths produce expected audit record; sensitive exception content reviewed before prod.", "components": "trade_pipeline/audit.py; break_report.py; report notebook", "status": "PARTIALLY IMPLEMENTED", "stories": ["TMP-019", "TMP-024"]},
-        {"id": "FR-012", "br": "BR-008", "description": "Orchestrate six parameterized tasks with parallel source branches and dependency joins.", "input": "Databricks Job parameters", "logic": "ingest_prices→process_prices and ingest_trades→process_trades run independently; build_positions joins both; calculate_daily_pnl follows.", "output": "Databricks Workflow run", "rules": "max_concurrent_runs=1; weekday 18:00 America/New_York schedule is PAUSED; dev target only.", "errors": "Workflow task failure blocks downstream; rerun through Jobs/CLI/notebook after investigation.", "acceptance": "Bundle validation and a successful manual run confirm all six task dependencies and parameters.", "components": "jobs/resources/trade_pipeline.job.yml; databricks.yml; notebooks/01_run_pipeline.py", "status": "PARTIALLY IMPLEMENTED", "stories": ["TMP-009", "TMP-010", "TMP-023"]},
-        {"id": "FR-013", "br": "BR-008", "description": "Make reruns deterministic and recoverable for a fixed source snapshot and date range.", "input": "Same trade snapshot, ticker/date request, run parameters", "logic": "Trade Bronze overwrite; price/Silver/Gold conditional MERGEs; reject/break writes are idempotent per identity/run.", "output": "Stable business keys/values and separate run audit history", "rules": "A retry gets task attempt identity; full-history recompute is used; no partial input may delete outside source scope.", "errors": "Fail-fast at bad input; inspect audit/reject/breaks, repair source, rerun; exact operational recovery time TBD.", "acceptance": "Two complete identical end-to-end runs preserve business output and business keys; audit history records both.", "components": "Ingestion/processing modules; Databricks Workflow; audit", "status": "PARTIALLY IMPLEMENTED", "stories": ["TMP-016", "TMP-022", "TMP-024"]},
-    ],
-    "nfrs": [
-        {"id": "NFR-01", "name": "Performance", "target": "PROPOSED: process the documented 1,200-trade / 10-symbol demonstration workload within 15 minutes end-to-end, excluding provider outages.", "status": "TO BE CONFIRMED", "evidence": "No measured run duration/SLA recorded in docs/test_results.md."},
-        {"id": "NFR-02", "name": "Reliability", "target": "PROPOSED: >=99% successful scheduled runs per calendar month after production support and alerting are established.", "status": "TO BE CONFIRMED", "evidence": "Only a dev job is configured; schedule paused."},
-        {"id": "NFR-03", "name": "Idempotency", "target": "PROPOSED: two runs over identical inputs produce identical business keys and financial values; only run-level audit/break history may grow.", "status": "PARTIALLY IMPLEMENTED", "evidence": "Unit tests cover scoped writes; documented second Databricks run was queued, not verified."},
-        {"id": "NFR-04", "name": "Security", "target": "PROPOSED: job service principal has least privilege on cibc schemas and input Volume; secrets never stored in source control; access reviewed before non-dev deploy.", "status": "TO BE CONFIRMED", "evidence": "Grant template exists; principal/environment are placeholders."},
-        {"id": "NFR-05", "name": "Maintainability", "target": "PROPOSED: source modules remain separated by Bronze/Silver/Gold; new business rules have unit tests and documented owners.", "status": "PARTIALLY IMPLEMENTED", "evidence": "Layered Python package and tests exist; CI/ownership not evidenced."},
-        {"id": "NFR-06", "name": "Testability", "target": "PROPOSED: deterministic unit tests for rules; Spark integration tests for MERGE/Delta behavior; UAT evidence for financial outputs.", "status": "PARTIALLY IMPLEMENTED", "evidence": "pytest tests exist; PySpark/Java/Delta runtime availability is not confirmed locally."},
-        {"id": "NFR-07", "name": "Scalability", "target": "PROPOSED: benchmark 100,000 trades and 50 symbols; confirm runtime and compute cost before adopting an incremental design.", "status": "TO BE CONFIRMED", "evidence": "Full-history recompute is documented as a prototype limitation; no benchmark."},
-        {"id": "NFR-08", "name": "Observability", "target": "PROPOSED: detect failed run and notify support within 5 minutes; audit every task attempt; reconcile expected task count.", "status": "PARTIALLY IMPLEMENTED", "evidence": "Delta audit/reject/break data and report notebook; no automated alerting."},
-        {"id": "NFR-09", "name": "Deployability", "target": "PROPOSED: repeatable Bundle validate/deploy in isolated dev/test/prod targets with reviewable configuration and smoke test.", "status": "PARTIALLY IMPLEMENTED", "evidence": "Databricks Asset Bundle has dev target and deploy script; no CI or non-dev target."},
-        {"id": "NFR-10", "name": "Retention and recovery", "target": "TBD by data owner: approve retention, RTO, RPO, and source replay window before production. No numeric policy is assumed.", "status": "TO BE CONFIRMED", "evidence": "Not specified in repository."},
-    ],
-    "sources": [
-        {"id": "SRC-TRADE", "name": "Trade transactions", "status": "IMPLEMENTED (synthetic prototype source)", "system": "scripts/generate_trades.py; no upstream trade system integration evidenced", "format": "CSV, 14 named columns; raw values landed as STRING", "location": "Local data/dirty_trades.csv then /Volumes/cibc/bronze/trade_files/dirty_trades.csv", "frequency": "Full snapshot per Job run; weekday schedule configured but paused; file delivery SLA TBD", "volume": "Checked-in sample has 1,200 generated rows per docs/test_results.md; production volumes TBD", "keys": "trade_id is logical entity; version + modified_timestamp select the latest; Bronze has no enforced PK", "versioning": "Highest version, then latest modified_timestamp; invalid/ambiguous latest is not replaced by older version", "quality": "Nonblank IDs; configured instrument/symbol match; BUY/SELL; nonzero quantity; positive price; USD; valid timestamps/dates; supported NYSE session; settlement next session; version > 0", "ingestion": "Validate exact header/nonempty/structure; dedupe identical in-batch rows; INSERT OVERWRITE Bronze snapshot", "failure": "Fail before overwrite; audit failure; Silver quarantines business-invalid rows", "open_items": "Real source owner, legal entity/system, delivery format contract, completeness watermark, file naming, correction/deletion semantics, volume/SLA, retention and access classification."},
-        {"id": "SRC-PRICE", "name": "Daily market prices", "status": "IMPLEMENTED (prototype provider; not approved for banking production)", "system": "Yahoo Finance via yfinance.download; provider rights/approval unverified", "format": "Python provider response normalized to symbol, price_date, close, currency", "location": "Provider response to cibc.bronze.market_prices Delta", "frequency": "Daily interval; seven-day default lookback; schedule is paused", "volume": "10 hard-coded default tickers; volume/limits and broader universe TBD", "keys": "symbol + price_date (logical business key)", "versioning": "Latest ingestion_timestamp then run_id; conflicting tied payloads rejected", "quality": "Expected NYSE sessions; non-future date; finite positive close; USD; unique symbol/date; completeness required", "ingestion": "Retry up to three attempts; unadjusted Close; Bronze conditional MERGE", "failure": "No data/omitted symbol/expected missing session fails; no stale close substituted for position valuation", "open_items": "Market-data owner/provider approval and license, adjustment/close definition, correction policy, availability SLA, symbol mapping, market calendar and missing-data escalation."},
-        {"id": "SRC-REF", "name": "Minimal reference data", "status": "PARTIALLY IMPLEMENTED (in-code mappings only)", "system": "trade_pipeline/config.py INSTRUMENT_ID_TO_SYMBOL; books/counterparties arrive as input strings", "format": "Python dictionary and input attributes; no reference Delta tables", "location": "Code configuration; no independent reference-data store", "frequency": "Release-time mapping update; business owner/update cadence TBD", "volume": "10 configured instrument-symbol pairs; book/counterparty cardinalities unknown", "keys": "instrument_id; symbol mapping; book_id and counterparty_id are opaque strings", "versioning": "No effective-dated reference history", "quality": "Configured instrument/symbol match; book/counterparty nonblank; USD-only currency", "ingestion": "No separate pipeline; Silver validates against configured mapping", "failure": "Unknown/mismatched instrument is rejected", "open_items": "Reference-data ownership, effective dating, books/counterparties validation, and need for persisted mappings must be confirmed."},
-    ],
-    "epics": [
-        {"id": "TMP-EP01", "name": "Project Initiation and Business Analysis", "priority": "High"},
-        {"id": "TMP-EP02", "name": "Requirements and Acceptance Criteria", "priority": "High"},
-        {"id": "TMP-EP03", "name": "Solution Architecture and Technical Design", "priority": "High"},
-        {"id": "TMP-EP04", "name": "Data Sourcing and Data Modelling", "priority": "High"},
-        {"id": "TMP-EP05", "name": "Platform Setup and CI/CD", "priority": "High"},
-        {"id": "TMP-EP06", "name": "Trade Data Ingestion", "priority": "High"},
-        {"id": "TMP-EP07", "name": "Market Price Ingestion", "priority": "High"},
-        {"id": "TMP-EP08", "name": "Silver Data Processing", "priority": "High"},
-        {"id": "TMP-EP09", "name": "Position Calculation", "priority": "High"},
-        {"id": "TMP-EP10", "name": "P&L Calculation", "priority": "High"},
-        {"id": "TMP-EP11", "name": "Reporting and Dashboard", "priority": "Medium"},
-        {"id": "TMP-EP12", "name": "Testing and Reconciliation", "priority": "High"},
-        {"id": "TMP-EP13", "name": "Deployment, Monitoring and Handover", "priority": "High"},
-    ],
-    "stories": [
-        {"id": "TMP-001", "epic": "TMP-EP01", "title": "Baseline current implementation and confirm scope", "objective": "Record verified capabilities, limitations, stakeholders, assumptions, and prototype-versus-production boundaries.", "description": "Use repository modules, DDL, tests, Bundle, and dated run evidence to approve the first scope baseline. Do not describe proposed controls as deployed.", "criteria": ["Inventory covers all six workflow tasks, 10 physical tables, two notebooks, Bundle targets, and test evidence.", "Every capability is labelled implemented, partial, planned, or to be confirmed with a repository evidence reference.", "Business owner confirms prototype scope and named decision owners before Sprint 2 exit."], "points": 2, "priority": "High", "status": "PARTIALLY IMPLEMENTED", "sprint": "Sprint 1", "br": ["BR-001", "BR-008"], "fr": ["FR-012"], "depends": [], "inputs": "Repository; product/operations contacts", "outputs": "Approved scope and implementation inventory", "subtasks": ["Inventory code, DDL, tests, docs, and deployment assets", "Review prototype boundaries and obtain scope decisions"]},
-        {"id": "TMP-002", "epic": "TMP-EP02", "title": "Approve business and functional requirements", "objective": "Turn current capabilities and business needs into testable BR/FR acceptance criteria.", "description": "Confirm user roles, daily business outputs, timing, correction semantics, report needs, and sign-off owners. Link BR-001..008 to FR-001..013.", "criteria": ["All eight business requirements have an owner, priority, acceptance evidence, and dependency.", "All 13 functional requirements identify input, processing, output, business rule, and failure behavior.", "Product owner records decisions or explicit TBDs; no unsupported policy is silently assumed."], "points": 3, "priority": "High", "status": "PLANNED", "sprint": "Sprint 1", "br": ["BR-001", "BR-002", "BR-003", "BR-004", "BR-005", "BR-006", "BR-007", "BR-008"], "fr": ["FR-001", "FR-002", "FR-003", "FR-004", "FR-005", "FR-006", "FR-007", "FR-008", "FR-009", "FR-010", "FR-011", "FR-012", "FR-013"], "depends": ["TMP-001"], "inputs": "Implementation inventory; business/operations interviews", "outputs": "Signed requirements and acceptance criteria", "subtasks": ["Interview trading, operations, and technology stakeholders", "Review and approve BR/FR traceability and decisions"]},
-        {"id": "TMP-003", "epic": "TMP-EP02", "title": "Set measurable non-functional and operational targets", "objective": "Agree performance, availability, support, security, retention, RTO/RPO, and recovery targets.", "description": "Use proposed thresholds as discussion points only. Confirm owner, measurement window, and evidence for each target.", "criteria": ["NFR-01..10 each has a confirmed target or named owner and due date for TBD.", "Performance baseline includes representative row counts, symbols, runtime, and cost.", "Retention, access classification, RTO/RPO, support hours, and alert response are approved or explicitly excluded from prototype."], "points": 2, "priority": "High", "status": "PLANNED", "sprint": "Sprint 1", "br": ["BR-007", "BR-008"], "fr": ["FR-011", "FR-012", "FR-013"], "depends": ["TMP-002"], "inputs": "Business/technology policy owners; proposed NFRs", "outputs": "Approved NFR baseline", "subtasks": ["Measure demo workload and propose service thresholds", "Confirm security, retention, recovery, and support policies"]},
-        {"id": "TMP-004", "epic": "TMP-EP03", "title": "Document and validate existing solution architecture", "objective": "Establish an evidence-backed architecture baseline and component responsibilities.", "description": "Document Unity Catalog, Delta layers, Python wheel, Job, notebooks, audit/rejects, and current deployment path.", "criteria": ["Current architecture matches databricks.yml, job YAML, source modules, and DDL.", "Trade/price parallel branches and join dependencies are accurate.", "Current provider, paused schedule, dev-only target, and notebook reporting are labelled as implemented/current limitations."], "points": 3, "priority": "High", "status": "IMPLEMENTED", "sprint": "", "br": ["BR-001", "BR-002", "BR-004", "BR-005", "BR-007", "BR-008"], "fr": ["FR-006", "FR-008", "FR-011", "FR-012"], "depends": [], "inputs": "Repository implementation", "outputs": "Current-state architecture", "subtasks": ["Trace workflow and component ownership from code/config", "Review target-state gap and architecture decisions"]},
-        {"id": "TMP-005", "epic": "TMP-EP03", "title": "Approve target security and environment architecture", "objective": "Define deployable dev/test/prod boundaries and least-privilege runtime identity.", "description": "Design only what is supported by actual workspace controls; confirm environment availability, principals, grants, networking, and secrets approach.", "criteria": ["Environment promotion and job identity are approved by platform owner.", "Unity Catalog grants cover required schemas and Volume only; no secrets are committed.", "Architecture labels all unprovisioned targets and controls as proposed."], "points": 3, "priority": "High", "status": "PLANNED", "sprint": "Sprint 1", "br": ["BR-007", "BR-008"], "fr": ["FR-011", "FR-012"], "depends": ["TMP-002", "TMP-003", "TMP-004"], "inputs": "Workspace/platform/security owner decisions", "outputs": "Approved environment and access design", "subtasks": ["Confirm target workspaces, principals, and data access", "Document secret, grant, and deployment configuration controls"]},
-        {"id": "TMP-006", "epic": "TMP-EP04", "title": "Confirm trade source contract and snapshot semantics", "objective": "Make source ownership, completeness, corrections, and deletion semantics explicit.", "description": "Current input is synthetic; define the future producer contract and safe transition from full snapshot to an authoritative feed.", "criteria": ["Trade source owner, file schema, delivery cutoff, completeness marker, and correction/deletion semantics are recorded.", "A missing trade in a later snapshot is not treated as a cancellation without explicit business rule.", "Sample volume, retention, privacy classification, and replay window are approved or tracked as TBD."], "points": 2, "priority": "High", "status": "PARTIALLY IMPLEMENTED", "sprint": "", "br": ["BR-001", "BR-003"], "fr": ["FR-001", "FR-004", "FR-009"], "depends": [], "inputs": "Synthetic CSV; trade owner", "outputs": "Trade source specification", "subtasks": ["Confirm 14-column schema and required fields", "Agree source snapshot, correction, cancellation, and replay rules"]},
-        {"id": "TMP-007", "epic": "TMP-EP04", "title": "Select and approve market-data source", "objective": "Resolve whether Yahoo Finance is acceptable for the prototype and choose a licensed production source.", "description": "Confirm price type, currency, adjustments, symbol universe, rights, correction policy, availability, and missing-price escalation; synthetic fixtures are acceptable for deterministic tests only.", "criteria": ["Provider and business owner approve data rights and use case before production.", "Price-date/price-type/currency contract and correction policy are documented.", "Daily availability and expected-session completeness thresholds have named owners."], "points": 3, "priority": "High", "status": "PLANNED", "sprint": "Sprint 2", "br": ["BR-002", "BR-005"], "fr": ["FR-002", "FR-005", "FR-007", "FR-008"], "depends": ["TMP-002"], "inputs": "Current yfinance adapter; market-data owner", "outputs": "Approved source decision and interface contract", "subtasks": ["Assess provider options, licensing, and connection method", "Approve close definition, currency, corrections, and session coverage"]},
-        {"id": "TMP-008", "epic": "TMP-EP04", "title": "Approve physical data dictionary and retention model", "objective": "Review all current table grains, keys, financial types, lineage, and future retention needs.", "description": "Use the 10 physical DDL files as current-state truth; identify no enforced primary keys and no dedicated reference/reporting tables.", "criteria": ["Data dictionary lists every column and exact DDL type/nullability for all 10 tables.", "Business owner approves table grain and logical key assumptions.", "Partitioning/clustering remains absent unless measured query patterns justify it.", "Retention and Delta cleanup policy are approved before any production purge/optimization."], "points": 2, "priority": "High", "status": "PARTIALLY IMPLEMENTED", "sprint": "Sprint 2", "br": ["BR-003", "BR-004", "BR-005", "BR-007"], "fr": ["FR-003", "FR-006", "FR-007", "FR-008", "FR-009", "FR-011"], "depends": ["TMP-006", "TMP-007"], "inputs": "database/tables DDL; provider/trade contracts", "outputs": "Approved dictionary and data-retention decisions", "subtasks": ["Validate table grains, keys, constraints, and lineage", "Confirm financial types and retention/optimization choices"]},
-        {"id": "TMP-009", "epic": "TMP-EP05", "title": "Maintain reproducible Databricks Asset Bundle development deployment", "objective": "Validate current development Bundle build and deploy path.", "description": "Bundle builds a wheel and deploys the six-task job/notebooks to the dev target; schedule remains paused by configuration.", "criteria": ["Bundle validation succeeds with the documented dev target and CLI profile.", "Wheel contains all six entry points and deploy uses repository source.", "Manual smoke run evidence is attached; no production readiness is inferred."], "points": 3, "priority": "High", "status": "IMPLEMENTED", "sprint": "", "br": ["BR-008"], "fr": ["FR-012"], "depends": [], "inputs": "databricks.yml; job resource; scripts/deploy.sh", "outputs": "Validated dev deployment procedure", "subtasks": ["Build wheel and validate Bundle configuration", "Deploy dev bundle and capture run evidence"]},
-        {"id": "TMP-010", "epic": "TMP-EP05", "title": "Add reviewed CI checks and controlled deployment promotion", "objective": "Automate deterministic tests, Bundle validation, and reviewed artifact promotion.", "description": "Create CI using existing pytest/package/Bundle checks; add non-dev targets only after platform provisioning and identity approval.", "criteria": ["Pull request CI runs deterministic local tests and Bundle validation without credentials in logs.", "Deployment artifact/version is traceable to reviewed source revision.", "Promotion cannot unpause a schedule or deploy to an unapproved target without explicit approval."], "points": 5, "priority": "High", "status": "PLANNED", "sprint": "Sprint 3", "br": ["BR-007", "BR-008"], "fr": ["FR-012", "FR-013"], "depends": ["TMP-005", "TMP-009"], "inputs": "Approved environment/security design; current Bundle", "outputs": "CI workflow and controlled deploy procedure", "subtasks": ["Add package/test/Bundle validation pipeline", "Define artifact promotion, approvals, and rollback evidence"]},
-        {"id": "TMP-011", "epic": "TMP-EP06", "title": "Ingest synthetic trade snapshot into Bronze", "objective": "Load structurally valid trade snapshots with deterministic raw lineage.", "description": "Current implementation validates the 14-field CSV and atomically overwrites Bronze after input checks.", "criteria": ["Exact schema, empty-file, and malformed-row cases are tested.", "Identical in-batch records are removed; versions of a trade remain present.", "Invalid file never overwrites existing Bronze; valid rerun yields same business rows."], "points": 5, "priority": "High", "status": "IMPLEMENTED", "sprint": "", "br": ["BR-001", "BR-003"], "fr": ["FR-001", "FR-013"], "depends": ["TMP-006"], "inputs": "CSV snapshot in UC Volume", "outputs": "cibc.bronze.trades", "subtasks": ["Validate file schema and structural integrity", "Write and audit distinct full-snapshot Bronze rows"]},
-        {"id": "TMP-012", "epic": "TMP-EP06", "title": "Resolve trade snapshot disappearance and historical correction controls", "objective": "Prevent a source snapshot replacement from leaving stale or silently deleting trades.", "description": "Current Bronze retains only latest snapshot and Silver does not remove trade IDs absent from a later file. Choose event/history storage or safe snapshot reconciliation.", "criteria": ["Trade owner approves semantics for missing trade IDs, cancellation, and correction.", "A two-snapshot test proves accepted Silver matches the agreed authoritative source state.", "Backdated corrections are traceable and recompute the intended history without unrelated deletes."], "points": 5, "priority": "High", "status": "PLANNED", "sprint": "Sprint 3", "br": ["BR-003", "BR-004", "BR-005"], "fr": ["FR-004", "FR-009", "FR-013"], "depends": ["TMP-006", "TMP-011"], "inputs": "Approved trade source semantics; current Bronze/Silver behavior", "outputs": "Versioned history/reconciliation design and tested implementation", "subtasks": ["Select append-only event or snapshot reconciliation approach", "Implement and test disappearance/cancellation/correction cases"]},
-        {"id": "TMP-013", "epic": "TMP-EP07", "title": "Ingest and retain daily market-price history", "objective": "Load supported daily close records with source identity and repeatable keys.", "description": "Current adapter calls Yahoo Finance, stores unadjusted closes, retries transient failures, and merges Bronze on symbol/date.", "criteria": ["Default symbols, date boundaries, provider response variants, NaN, duplicate keys, and retry errors have deterministic tests.", "Price rows carry source, currency, ingestion timestamp, and run lineage.", "Provider limitations and data rights are explicit in the source contract."], "points": 5, "priority": "High", "status": "IMPLEMENTED", "sprint": "", "br": ["BR-002"], "fr": ["FR-002", "FR-013"], "depends": ["TMP-007"], "inputs": "Daily price provider response", "outputs": "cibc.bronze.market_prices", "subtasks": ["Normalize daily provider payload and date range", "Merge price history and audit source outcomes"]},
-        {"id": "TMP-014", "epic": "TMP-EP07", "title": "Harden price source decision and completeness exception process", "objective": "Make price completeness and manual resolution operationally actionable.", "description": "Use provider choice from TMP-007; define approved synthetic fixtures for test environments and operational handling for late/missing prices.", "criteria": ["Missing expected session is tied to symbol/date and owner; no stale price is used for position valuation.", "Test fixtures are deterministic and cannot be mistaken for production source data.", "Approved provider/credentials, rate limits, correction policy, and retries are configured outside source code where required."], "points": 3, "priority": "High", "status": "PLANNED", "sprint": "Sprint 2", "br": ["BR-002", "BR-005", "BR-007"], "fr": ["FR-002", "FR-005", "FR-007", "FR-013"], "depends": ["TMP-007", "TMP-013"], "inputs": "Approved provider decision; current completeness checks", "outputs": "Price-source controls and exception runbook", "subtasks": ["Define deterministic test source and provider configuration", "Document missing-price triage, correction, and retry behavior"]},
-        {"id": "TMP-015", "epic": "TMP-EP08", "title": "Validate Silver trades and prices with reject history", "objective": "Publish typed records only after business validation and deterministic version selection.", "description": "Current code performs typed conversion, configured business checks, deduplication/versioning, conditional merge, and reject-history writes.", "criteria": ["Trade and price fixtures cover configured rules and reason codes.", "Silver trade business key is trade_id; price key is symbol + price_date.", "Reject writes are idempotent and preserve raw source fields/lineage; missing expected price blocks Silver update."], "points": 5, "priority": "High", "status": "IMPLEMENTED", "sprint": "", "br": ["BR-003", "BR-007"], "fr": ["FR-003", "FR-004", "FR-005", "FR-013"], "depends": ["TMP-011", "TMP-013"], "inputs": "Bronze trades and prices", "outputs": "Silver validated tables and rejects", "subtasks": ["Cast and validate typed trade/price values", "Apply dedupe/version rules and idempotent reject MERGE"]},
-        {"id": "TMP-016", "epic": "TMP-EP08", "title": "Run Spark/Delta integration and end-to-end rerun validation", "objective": "Prove Delta writes, constraints, lineage, recovery, and same-input idempotency in a supported runtime.", "description": "Local Spark availability is not evidenced; docs/test_results.md records a successful dated pipeline run but its same-parameter second run was queued.", "criteria": ["Spark/Delta integration suite runs in a supported CI or Databricks test environment and results are retained.", "A second complete run with the same inputs verifies stable business keys/values and expected audit history growth.", "Failure injection confirms no unsafe publication and a documented rerun recovers the task."], "points": 2, "priority": "High", "status": "PLANNED", "sprint": "Sprint 2", "br": ["BR-003", "BR-007", "BR-008"], "fr": ["FR-003", "FR-005", "FR-009", "FR-013"], "depends": ["TMP-015"], "inputs": "Supported Spark/Delta environment; current test suite", "outputs": "Integration, idempotency, and recovery evidence", "subtasks": ["Execute Spark/Delta tests in a provisioned environment", "Run same-input job twice and compare business outputs"]},
-        {"id": "TMP-017", "epic": "TMP-EP09", "title": "Build cumulative daily positions and exact-date valuation", "objective": "Publish historical positions at the agreed book/counterparty/instrument/date grain.", "description": "Current implementation aggregates signed trade quantities, carries positions across trading sessions, and joins same-day same-currency marks.", "criteria": ["Position grain and key match the approved dictionary.", "Daily buys, sells, net, closing quantity, close, and market value reconcile to independent calculations.", "Missing same-day price leaves price/value NULL and creates a break without changing quantity."], "points": 5, "priority": "High", "status": "IMPLEMENTED", "sprint": "", "br": ["BR-004", "BR-005"], "fr": ["FR-006", "FR-007", "FR-009"], "depends": ["TMP-015"], "inputs": "Silver trades and prices", "outputs": "cibc.gold.positions; position valuation breaks", "subtasks": ["Aggregate daily flows and cumulative positions", "Value at exact-date close and reconcile history"]},
-        {"id": "TMP-018", "epic": "TMP-EP10", "title": "Calculate daily cash-equity mark-to-market P&L", "objective": "Separate opening position market move from trade-day economic P&L.", "description": "Current Gold formula uses prior close for opening inventory and signed trade consideration for intraday activity; cumulative proxy is not true unrealized P&L.", "criteria": ["Daily output grain is valuation_date + book_id + symbol + currency.", "Price movement and trade-day terms reconcile independently, including sells, new/flat positions, prior-close baseline, and missing prices.", "unrealized_pnl_proxy is clearly labelled as a cumulative proxy and is not presented as true unrealized P&L."], "points": 5, "priority": "High", "status": "IMPLEMENTED", "sprint": "", "br": ["BR-005"], "fr": ["FR-007", "FR-008", "FR-009"], "depends": ["TMP-017"], "inputs": "Gold positions; Silver trades/prices", "outputs": "cibc.gold.daily_pnl; P&L breaks", "subtasks": ["Calculate opening inventory price move and trade-day term", "Reconcile output and label simplified P&L limitations"]},
-        {"id": "TMP-019", "epic": "TMP-EP11", "title": "Provide notebook and SQL operational reporting", "objective": "Expose current job run, audit metrics, rejections, positions, P&L, and valuation breaks.", "description": "A run-trigger notebook, read-only report notebook, and demo SQL exist. No deployed dashboard is evidenced.", "criteria": ["Run report identifies audit-derived status and clearly marks unavailable counts.", "Notebook output is read-only and totals reconcile to source tables.", "Report states that scheduled-run completeness is not evaluated and dashboard is not implemented."], "points": 3, "priority": "Medium", "status": "IMPLEMENTED", "sprint": "", "br": ["BR-006", "BR-007", "BR-008"], "fr": ["FR-010", "FR-011", "FR-012"], "depends": ["TMP-018"], "inputs": "Gold/Silver tables and Jobs API", "outputs": "Run-control/report notebooks and SQL queries", "subtasks": ["Trigger and monitor controlled Job execution", "Report audit, rejects, Gold outcomes, and unavailable metrics"]},
-        {"id": "TMP-020", "epic": "TMP-EP11", "title": "Deliver user-accepted trading and P&L dashboard MVP", "objective": "Present agreed Gold reporting datasets in an approved Databricks SQL dashboard or chosen BI tool.", "description": "Dashboard technology, user roles, filters, reconciliation views, and access model remain to be confirmed; this is proposed work, not current functionality.", "criteria": ["Product owner signs off audience, filters, date/book/symbol dimensions, and exception drill-through.", "Dashboard totals reconcile to Gold daily_pnl and positions for agreed test dates.", "Dashboard access is least privilege and deployment is repeatable; no dashboard is reported as live before sign-off."], "points": 5, "priority": "Medium", "status": "PLANNED", "sprint": "Sprint 4", "br": ["BR-006"], "fr": ["FR-010"], "depends": ["TMP-002", "TMP-008", "TMP-018", "TMP-019"], "inputs": "Approved reporting requirements; Gold datasets", "outputs": "Dashboard MVP and validation evidence", "subtasks": ["Agree dashboard user journeys and query model", "Build, permission, and reconcile dashboard views"]},
-        {"id": "TMP-021", "epic": "TMP-EP12", "title": "Maintain deterministic unit and transformation tests", "objective": "Protect module contracts and calculation rules with repeatable test cases.", "description": "Tests cover source parsing, transformations, DDL/query shape, packaging, notebook helpers, and financial examples; Spark-dependent cases need a compatible runtime. Three focused tests currently fail because they reference removed Silver *_constraints.sql files; current checks are consolidated into trades.sql and market_prices.sql.", "criteria": ["Business-rule tests include correction, duplicate, calendar, missing price, short position, and P&L decomposition cases.", "CI reports skips separately from passes and does not treat unavailable Spark tests as verified.", "Replace stale test references with the consolidated Silver DDL and verify its CHECK constraints.", "New failures are triaged against the baseline; no unrelated failures are silently waived."], "points": 3, "priority": "High", "status": "PARTIALLY IMPLEMENTED", "sprint": "", "br": ["BR-001", "BR-002", "BR-003", "BR-004", "BR-005", "BR-007"], "fr": ["FR-001", "FR-002", "FR-003", "FR-004", "FR-005", "FR-006", "FR-007", "FR-008"], "depends": [], "inputs": "pytest suite; supported Python/Spark runtime", "outputs": "Deterministic test evidence", "subtasks": ["Run and triage current unit/static test suite", "Update stale DDL test paths and maintain focused rule tests"]},
-        {"id": "TMP-022", "epic": "TMP-EP12", "title": "Complete independent position/P&L reconciliation and UAT", "objective": "Close the gap between pipeline output and business-approved calculations.", "description": "The 2026-10-11 run has independent SQL reconciliation with zero reported mismatches; same-input rerun remained queued in the report.", "criteria": ["Trade-to-position quantities reconcile by date/book/counterparty/instrument.", "Position market value and daily P&L reconcile using approved close/baseline/trade cash-flow methodology.", "Business owner signs UAT evidence for representative long, short, flat, correction, and missing-price cases.", "A complete same-input rerun has recorded evidence; do not rely only on unit tests."], "points": 2, "priority": "High", "status": "PARTIALLY IMPLEMENTED", "sprint": "Sprint 4", "br": ["BR-003", "BR-004", "BR-005", "BR-006"], "fr": ["FR-006", "FR-007", "FR-008", "FR-009", "FR-010", "FR-013"], "depends": ["TMP-016", "TMP-018"], "inputs": "Gold outputs; independent SQL; business test cases", "outputs": "Reconciliation and UAT sign-off", "subtasks": ["Re-run independent position and P&L reconciliation", "Obtain business acceptance and capture rerun evidence"]},
-        {"id": "TMP-023", "epic": "TMP-EP13", "title": "Operate the dev workflow with controlled scheduling", "objective": "Use existing Asset Bundle workflow safely and keep schedule gated on readiness.", "description": "Current Job allows one concurrent run, runs six tasks, and has a weekday 18:00 America/New_York schedule configured as PAUSED.", "criteria": ["Manual run and failure states are visible in Job UI and audit tables.", "Schedule remains paused until source owner, support contact, permissions, runbook, and alert path are approved.", "Any future unpause/change is reviewed and recorded with owner and rollback path."], "points": 3, "priority": "High", "status": "PARTIALLY IMPLEMENTED", "sprint": "", "br": ["BR-007", "BR-008"], "fr": ["FR-011", "FR-012", "FR-013"], "depends": ["TMP-009"], "inputs": "Deployed dev Job; operational readiness decisions", "outputs": "Controlled dev operating procedure", "subtasks": ["Verify run parameters, concurrency, retries, and task dependencies", "Document schedule gate and manual recovery controls"]},
-        {"id": "TMP-024", "epic": "TMP-EP13", "title": "Create support runbook, alerting, and handover", "objective": "Prepare an operational handoff with actionable diagnosis and escalation.", "description": "Define monitoring on Job/audit/reject/break signals; alerting and support ownership are not implemented in the repo.", "criteria": ["Runbook describes failed task diagnosis, source repair, safe rerun, reconciliation, and escalation owner.", "Alert criteria and response targets are approved and tested; proposed five-minute detection target remains proposed until measured.", "Handover includes architecture, data contracts, access, known limitations, deployment procedure, and open risks."], "points": 3, "priority": "High", "status": "PLANNED", "sprint": "Sprint 4", "br": ["BR-007", "BR-008"], "fr": ["FR-011", "FR-012", "FR-013"], "depends": ["TMP-003", "TMP-019", "TMP-022", "TMP-023"], "inputs": "Approved NFRs; report; reconciliation; support contacts", "outputs": "Runbook, notification path, handover sign-off", "subtasks": ["Define alert rules, support rota, and escalation process", "Write recovery/runbook and conduct handover walkthrough"]},
-    ],
-    "sprints": [
-        {"name": "Sprint 1", "weeks": "Weeks 1-2", "goal": "Lock project scope, requirement acceptance, measurable NFRs, and target access design.", "stories": ["TMP-001", "TMP-002", "TMP-003", "TMP-005"], "dependencies": "Kickoff and timely access to business, market-data, and platform decision owners.", "deliverables": "Approved scope, BR/FR baseline, NFR decision log, target security/environment design.", "demo": "Trace one trade and one price source through implemented modules and show signed acceptance criteria.", "exit": "No critical source, access, calculation, or report requirement remains ownerless."},
-        {"name": "Sprint 2", "weeks": "Weeks 3-4", "goal": "Resolve market-data decisions, dictionary, price exception handling, and runtime test strategy.", "stories": ["TMP-007", "TMP-008", "TMP-014", "TMP-016"], "dependencies": "Sprint 1 approved scope; access to market-data owner; supported Databricks/Spark test environment.", "deliverables": "Source decision, DDL-backed dictionary signoff, missing-price procedure, integration/rerun evidence.", "demo": "Show a missing-session case and typed data/reject outcomes; demonstrate integration suite execution.", "exit": "Price feed is approved or explicitly remains prototype-only; unresolved runtime/test access has an owner and date."},
-        {"name": "Sprint 3", "weeks": "Weeks 5-6", "goal": "Improve deployment controls and resolve trade snapshot history/correction semantics.", "stories": ["TMP-010", "TMP-012"], "dependencies": "Approved security/environment design; trade owner signs source semantics.", "deliverables": "Reviewed CI and promotion controls; tested correction/disappearance behavior.", "demo": "Show PR checks and a two-snapshot correction/cancellation case.", "exit": "Deployment path is reproducible and trade history behavior is explicit/tested."},
-        {"name": "Sprint 4", "weeks": "Weeks 7-8", "goal": "Deliver reporting MVP, reconciliation/UAT evidence, and operations handover.", "stories": ["TMP-020", "TMP-022", "TMP-024"], "dependencies": "Approved reporting requirements, integration evidence, support owner, and prior sprint outputs.", "deliverables": "Dashboard MVP, signed UAT/reconciliation, runbook and alerting handover.", "demo": "Show dashboard reconciliation from source trade through daily P&L and demonstrate failure recovery.", "exit": "Product/operations sign-off; no unresolved critical risk; schedule stays paused absent production readiness approval."},
-    ],
-    "milestones": [
-        {"id": "M-01", "name": "Scope and requirements baseline", "week": "End Week 2", "evidence": "Approved BR/FR, NFRs, RAID owners, target access design", "owner": "Product Owner / Lead Engineer", "gate": "Sources, calculation scope, roles, and acceptance evidence agreed"},
-        {"id": "M-02", "name": "Source and data design sign-off", "week": "End Week 4", "evidence": "Provider decision, source contracts, dictionary, integration test result", "owner": "Data Owner / Architect", "gate": "Provider rights and supported test runtime confirmed or scope explicitly remains prototype"},
-        {"id": "M-03", "name": "Engineering controls ready", "week": "End Week 6", "evidence": "CI checks, deployment procedure, trade history reconciliation tests", "owner": "Lead Engineer", "gate": "Reviewed build/deploy and correction behavior proven"},
-        {"id": "M-04", "name": "Prototype acceptance and handover", "week": "End Week 8", "evidence": "Dashboard UAT, end-to-end reconciliation, runbook, open risk acceptance", "owner": "Product Owner / Operations", "gate": "Business and operations sign-off; no schedule unpause without separate production approval"},
-    ],
-    "risks": [
-        {"id": "R-01", "type": "Risk", "description": "Yahoo Finance is not established as an approved or licensed institutional market-data source.", "probability": "High", "impact": "High", "response": "Obtain provider/data-rights decision in Sprint 2; keep production scope blocked until approved source is selected.", "owner": "Market Data Owner", "status": "Open"},
-        {"id": "R-02", "type": "Risk", "description": "Full-snapshot trade Bronze can leave stale Silver trades when trade IDs disappear from later files.", "probability": "Medium", "impact": "High", "response": "Agree cancellation/deletion semantics and implement two-snapshot reconciliation test before relying on external trade feed.", "owner": "Trade Data Owner", "status": "Open"},
-        {"id": "R-03", "type": "Risk", "description": "Full-history recomputation and free-form instrument/book data may not scale or satisfy control expectations.", "probability": "Medium", "impact": "High", "response": "Benchmark representative scale; establish reference ownership and incremental strategy from evidence.", "owner": "Lead Data Engineer", "status": "Open"},
-        {"id": "R-04", "type": "Risk", "description": "Eight-week plan has no capacity reserve and depends on part-time approvers and test runtime access.", "probability": "Medium", "impact": "High", "response": "Reserve decision owners at Sprint start; defer dashboard polish or extend by one sprint if critical access/decisions slip.", "owner": "Project Manager", "status": "Open"},
-        {"id": "A-01", "type": "Assumption", "description": "Initial scope remains USD cash equities, 10 configured instruments, and one development workspace.", "probability": "N/A", "impact": "High", "response": "Product owner confirms before Sprint 1 exit; FX, derivatives, fees, and corporate actions stay out of scope.", "owner": "Product Owner", "status": "To confirm"},
-        {"id": "I-01", "type": "Issue", "description": "A documented second same-parameter Databricks run was queued and has no recorded outcome.", "probability": "N/A", "impact": "Medium", "response": "Run and compare business keys/values in a supported runtime; retain evidence.", "owner": "QA / Lead Engineer", "status": "Open"},
-        {"id": "I-02", "type": "Issue", "description": "Three focused local tests fail because they read removed Silver *_constraints.sql files; the checks now reside in consolidated trades.sql and market_prices.sql.", "probability": "N/A", "impact": "Medium", "response": "Update stale test paths and assertions to the consolidated DDL, then rerun focused and full suite; application/test changes are outside this documentation task.", "owner": "Lead Engineer / QA", "status": "Open"},
-        {"id": "D-01", "type": "Dependency", "description": "Production environment, service principal, data rights, source owners, and reporting audience are not evidenced.", "probability": "High", "impact": "High", "response": "Record named decision owner and due date; keep job schedule paused until readiness gate.", "owner": "Project Manager", "status": "Open"},
-        {"id": "A-02", "type": "Assumption", "description": "Two-week sprint estimates use 10 story points of lead-engineer delivery capacity per sprint, with part-time BA/architect/QA support.", "probability": "N/A", "impact": "Medium", "response": "Re-estimate at planning; the eight-week baseline has no reserve and is not a committed calendar date.", "owner": "Project Manager", "status": "Proposed"},
-    ],
-    "decisions": [
-        {"id": "DEC-01", "decision": "Retain current three-schema Medallion design (cibc.bronze/silver/gold) for prototype.", "status": "Implemented", "evidence": "database/catalog.sql and schema DDL; no separate reporting schema."},
-        {"id": "DEC-02", "decision": "Use synthetic trade CSV for prototype demonstration.", "status": "Implemented", "evidence": "scripts/generate_trades.py and data/dirty_trades.csv; no upstream trading system connector."},
-        {"id": "DEC-03", "decision": "Use Yahoo Finance unadjusted closes in current price adapter; production approval remains open.", "status": "Implemented / approval open", "evidence": "src/trade_pipeline/bronze/ingest_prices.py and README provider limitation."},
-        {"id": "DEC-04", "decision": "Value positions at exact-date close; missing price remains NULL and creates a break.", "status": "Implemented", "evidence": "build_positions.py; docs/data_contracts.md."},
-        {"id": "DEC-05", "decision": "Use simplified USD cash-equity daily P&L with opening inventory price move plus trade-day term.", "status": "Implemented / business sign-off open", "evidence": "calculate_daily_pnl.py and tests; fees, dividends, FX, corporate actions excluded."},
-        {"id": "DEC-06", "decision": "Keep development schedule paused until operational readiness is explicitly approved.", "status": "Implemented configuration", "evidence": "jobs/resources/trade_pipeline.job.yml pause_status PAUSED."},
-    ],
-}
-
-
-TESTS = [
-    {"id": "TC-001", "type": "Unit / file contract", "scope": "Trade CSV exact header, empty/malformed file, raw strings, dedupe, no overwrite on invalid input", "requirements": "FR-001, FR-013", "story": "TMP-011", "expected": "Valid file writes distinct snapshot; invalid source fails before overwrite", "evidence": "tests/test_ingest_trades.py; capture supported-runtime run"},
-    {"id": "TC-002", "type": "Unit / integration", "scope": "Price response normalization, retries, date window, no-price handling", "requirements": "FR-002, FR-005", "story": "TMP-013, TMP-014", "expected": "Correct close records; missing expected sessions are explicit; no invented price", "evidence": "tests/test_ingest_prices.py; test fixtures"},
-    {"id": "TC-003", "type": "Data quality", "scope": "Silver cast, rules, reject reasons, duplicate/version precedence", "requirements": "FR-003, FR-004, FR-005", "story": "TMP-015", "expected": "Valid typed rows only; deterministic rejects and one selected trade version", "evidence": "tests/test_trades.py; tests/test_process_prices.py"},
-    {"id": "TC-004", "type": "Calculation / reconciliation", "scope": "Daily and cumulative position, buys/sells, no-trade day, short/flat, correction", "requirements": "FR-006, FR-009", "story": "TMP-017, TMP-022", "expected": "Gold quantity matches independent trade aggregation by full grain", "evidence": "tests/test_build_positions.py; independent SQL reconciliation"},
-    {"id": "TC-005", "type": "Valuation", "scope": "Exact-date price, currency, missing mark, null valuation and break", "requirements": "FR-007", "story": "TMP-017", "expected": "Value = closing quantity * exact close; missing mark does not change quantity", "evidence": "tests/test_build_positions.py; Gold break query"},
-    {"id": "TC-006", "type": "P&L reconciliation", "scope": "Opening-position price move + trade-day cash-flow term; missing baseline/current close", "requirements": "FR-008", "story": "TMP-018, TMP-022", "expected": "Financial values match independent Decimal calculation; missing inputs yield NULL", "evidence": "tests/test_daily_pnl.py; documented BOOK_TECH/AAPL hand check"},
-    {"id": "TC-007", "type": "Schema", "scope": "DDL column/type/nullability/key assumptions and financial precision", "requirements": "FR-003, FR-006, FR-008, FR-011", "story": "TMP-008, TMP-021", "expected": "All 10 DDL tables appear in dictionary with exact SQL definitions", "evidence": "database/tables/**/*.sql; generated Data Dictionary worksheet; update tests that still reference removed *_constraints.sql paths"},
-    {"id": "TC-008", "type": "Idempotency", "scope": "Same source snapshot/date range run twice", "requirements": "FR-009, FR-013", "story": "TMP-016, TMP-022", "expected": "Business values and unique keys stable; audit history reflects both attempts", "evidence": "New supported Databricks/Delta run pair; compare business-key hashes"},
-    {"id": "TC-009", "type": "Recovery", "scope": "Inject source/task failure and rerun after correction", "requirements": "FR-001, FR-011, FR-012, FR-013", "story": "TMP-016, TMP-024", "expected": "Failure is audited, downstream blocked, corrected rerun reaches consistent outputs", "evidence": "Job run URL, audit rows, recovery run and reconciliation"},
-    {"id": "TC-010", "type": "Workflow integration", "scope": "Six-task DAG, parallel source branches, Bundle parameters and deployment smoke test", "requirements": "FR-012", "story": "TMP-009, TMP-010, TMP-023", "expected": "Prices/trades branches run independently, join before positions, P&L runs last", "evidence": "Bundle validate output; Job task graph and run record"},
-    {"id": "TC-011", "type": "Reporting / UAT", "scope": "Run status, row counts, rejects, breaks, positions, P&L, dashboard access", "requirements": "FR-010, FR-011", "story": "TMP-019, TMP-020, TMP-022", "expected": "Report/dashboard totals reconcile to Gold; unavailable measures are clearly labeled", "evidence": "UAT scripts, screenshot/export, stakeholder sign-off"},
-    {"id": "TC-012", "type": "Deployment / operations", "scope": "Environment config, least privilege, notifications, recovery, handover", "requirements": "FR-011, FR-012, FR-013", "story": "TMP-005, TMP-010, TMP-024", "expected": "Approved identity and runbook are usable; schedule remains gated until readiness approval", "evidence": "Access review, CI/deploy log, alert test, runbook walkthrough"},
-]
-
-
-TABLE_META = {
-    "cibc.bronze.trades": ("Raw latest trade CSV snapshot", "One distinct source row per current file snapshot", "No enforced key; source identity is trade fields + version", "No physical PK/partition/clustering; small prototype", "INSERT OVERWRITE after structural validation"),
-    "cibc.bronze.market_prices": ("Raw price records", "One symbol and price date", "Logical: symbol + price_date; no enforced constraint", "No physical PK/partition/clustering", "Conditional MERGE on symbol + price_date"),
-    "cibc.silver.trades": ("Validated current trade versions", "One accepted row per trade_id", "trade_id", "No physical PK/partition/clustering", "Conditional MERGE; unusable present IDs removed"),
-    "cibc.silver.trades_rejects": ("Trade data-quality and version rejects", "One rejected raw record/reason history row", "Logical reject key from business columns + source file + reason", "No physical PK/partition/clustering", "Insert-once MERGE reject history"),
-    "cibc.silver.market_prices": ("Validated daily closing prices", "One symbol and price date", "symbol + price_date; positive close CHECK", "No physical PK/partition/clustering", "Conditional MERGE on symbol + price_date"),
-    "cibc.silver.market_prices_rejects": ("Price data-quality rejects", "One rejected price record/reason history row", "Logical symbol/date/payload + reason", "No physical PK/partition/clustering", "Insert-once MERGE reject history"),
-    "cibc.gold.positions": ("Daily cumulative positions and same-day valuation", "Date + book + counterparty + instrument + currency", "valuation_date + book_id + counterparty_id + instrument_id + currency", "No physical PK/partition/clustering", "Conditional scoped MERGE reconciliation"),
-    "cibc.gold.daily_pnl": ("Daily book/symbol P&L and valuation inputs", "Date + book + symbol + currency", "valuation_date + book_id + symbol + currency", "No physical PK/partition/clustering", "Conditional scoped MERGE reconciliation"),
-    "cibc.gold.valuation_breaks": ("Run-level missing price/baseline exceptions", "Run + instrument + date + break type, or trade-level unpriced trade", "run_id + nullable trade_id/instrument_id/date + break_type", "No physical PK/partition/clustering", "Insert-only MERGE; run history retained"),
-    "cibc.gold.pipeline_run_log": ("Task-attempt audit and row/error metrics", "One Job task attempt", "run_id + task_run_id", "No physical PK/partition/clustering", "MERGE STARTED/metrics/SUCCESS or FAILED"),
-}
-
-
-COLUMN_META = {
-    "trade_id": ("Trade business identifier", "CSV.trade_id", "Preserved as STRING; Silver key after validation", "Required; unique in Silver"),
-    "counterparty_id": ("Counterparty identifier", "CSV.counterparty_id", "Preserved as STRING", "Required/nonblank for accepted trade"),
-    "instrument_id": ("Configured instrument identifier", "CSV.instrument_id", "Checked against config mapping", "Required and configured; symbol must match"),
-    "symbol": ("Market ticker symbol", "CSV.symbol or configured instrument mapping", "Normalized/validated against instrument map", "Required; mapped and consistent"),
-    "side": ("Source trade direction", "CSV.side", "Raw value retained in Bronze/reject; used to sign quantity", "BUY or SELL"),
-    "quantity": ("Trade or position quantity", "CSV.quantity or Silver trades.quantity", "DECIMAL(18,6); SELL is negative in Silver; aggregates use DECIMAL(28,6)", "Nonzero; BUY positive; SELL negative after normalization"),
-    "price": ("Trade execution price", "CSV.price", "try_cast to DECIMAL(18,6)", "Required and > 0"),
-    "currency": ("Currency code", "CSV.currency or price configuration", "USD-only current prototype", "Required; USD only"),
-    "trade_timestamp": ("Trade event timestamp", "CSV.trade_timestamp", "try_cast to TIMESTAMP", "Required; date must match trade_date"),
-    "trade_date": ("Trade business date", "CSV.trade_date", "try_cast to DATE; drives daily position activity", "Required; supported session and not future"),
-    "settlement_date": ("Settlement business date", "CSV.settlement_date", "try_cast to DATE", "Required; next supported business session in current rule"),
-    "book_id": ("Trading book identifier", "CSV.book_id", "Passed as opaque STRING", "Required/nonblank; book reference not persisted"),
-    "version": ("Trade source version", "CSV.version", "try_cast to INT", "Positive; latest version wins"),
-    "modified_timestamp": ("Trade source correction timestamp", "CSV.modified_timestamp", "try_cast to TIMESTAMP", "Required; not earlier than trade timestamp"),
-    "source_file": ("Source path/file lineage", "Input Volume path", "Added at Bronze ingestion; propagated to Silver trade", "Required lineage in Bronze; nullable in Silver DDL"),
-    "source_api": ("Price provider identifier", "yfinance.download", "Added by price adapter", "Provider identity recorded; approved source TBD"),
-    "price_date": ("Market price effective date", "Provider date", "try_cast to DATE", "Expected supported session; not future"),
-    "close": ("Unadjusted daily closing price", "Provider Close", "try_cast to DECIMAL(18,6)", "Required, finite, positive; currency USD"),
-    "ingestion_timestamp": ("Ingestion event timestamp", "Pipeline runtime", "current_timestamp or provider batch timestamp", "Audit lineage"),
-    "run_id": ("Pipeline run identifier", "Databricks Job run id", "Passed to task and persisted", "Required for lineage where source available"),
-    "bronze_run_id": ("Bronze source run identifier", "Bronze.run_id", "Propagated selected-row lineage", "Lineage may be nullable on historical rows"),
-    "bronze_ingestion_timestamp": ("Bronze ingestion timestamp", "Bronze.ingestion_timestamp", "Propagated selected-row lineage", "Lineage may be nullable on historical rows"),
-    "rejection_reason": ("One or more validation/reconciliation reason codes", "Silver validation", "Pipe-separated rule names", "Required for reject record"),
-    "rejected_at": ("Reject capture timestamp", "Silver processor runtime", "current_timestamp", "Required for reject record"),
-    "daily_buy_quantity": ("Daily sum of positive BUY quantities", "Silver trades.quantity", "Grouped by position grain/date; DECIMAL(28,6)", "Not null; zero when no buys"),
-    "daily_sell_quantity": ("Daily absolute sum of signed SELL quantities", "Silver trades.quantity", "Sum(abs(quantity)) for sells; DECIMAL(28,6)", "Not null; zero when no sells"),
-    "daily_net_quantity": ("Daily signed net trade quantity", "Silver trades.quantity", "SUM(signed quantity); DECIMAL(28,6)", "Not null"),
-    "closing_position_quantity": ("Cumulative closing position", "Daily net quantity", "Cumulative SUM over session timeline; DECIMAL(28,6)", "Not null; may be negative"),
-    "closing_price": ("Exact-date closing mark", "Silver market_prices.close", "Join symbol/date/currency; DECIMAL(18,6)", "Nullable when no same-day close"),
-    "market_value": ("Position market value", "Closing quantity * closing price", "DECIMAL(38,6)", "Nullable when close is missing"),
-    "opening_quantity": ("Position at start of valuation date", "Closing quantity - daily net quantity", "DECIMAL(28,6)", "Not null"),
-    "buy_quantity": ("Daily buy flow at P&L grain", "Gold positions.daily_buy_quantity", "Sum across counterparties; DECIMAL(28,6)", "Not null"),
-    "sell_quantity": ("Daily sell flow at P&L grain", "Gold positions.daily_sell_quantity", "Sum across counterparties; positive absolute amount", "Not null"),
-    "closing_quantity": ("Closing position at P&L grain", "Gold positions.closing_position_quantity", "Sum across counterparties", "Not null"),
-    "previous_close": ("Latest available close strictly before valuation date", "Silver market_prices", "As-of prior-date join; DECIMAL(18,6)", "Nullable; required for nonzero opening position"),
-    "current_close": ("Exact-date close", "Silver market_prices", "Join symbol/date/currency; DECIMAL(18,6)", "Nullable; required for daily P&L"),
-    "unrealized_pnl_proxy": ("Cumulative mark-to-market less signed trade consideration proxy", "Gold valuation and trade cash flows", "DECIMAL(38,6); includes realized effects and is not true unrealized P&L", "Nullable when current valuation unavailable"),
-    "daily_pnl": ("Daily simplified cash-equity P&L", "Opening position, current/prior closes, signed trade cash flow", "DECIMAL(38,6)", "Nullable when required price/baseline unavailable"),
-    "calculation_status": ("Completeness status for daily P&L row", "Price/baseline availability", "COMPLETE, MISSING_CURRENT_PRICE, MISSING_BASELINE", "Required"),
-    "calculated_at": ("Calculation timestamp", "Gold processor runtime", "current_timestamp", "Nullable in DDL"),
-    "valuation_date": ("Date represented by position/P&L/break", "Trade/calendar/price dates", "DATE", "Required in position and P&L"),
-    "break_type": ("Valuation exception category", "Gold calculation", "MISSING_MARKET_PRICE or MISSING_PNL_BASELINE", "Required"),
-    "break_description": ("Human-readable exception detail", "Gold calculation", "Constructed from book/instrument/date context", "Required"),
-    "detected_at": ("Break detection timestamp", "Gold processor runtime", "current_timestamp", "Required"),
-    "status": ("Break or task state", "Pipeline", "OPEN for valuation breaks; STARTED/SUCCESS/FAILED for audit", "Required in business record"),
-    "task_run_id": ("Databricks task attempt identifier", "Task context", "Task run plus execution count where available", "Logical audit key with run_id"),
-    "task_name": ("Workflow task name", "Bundle task_key", "Recorded by audited wrapper", "Required by contract"),
-    "run_date": ("UTC date task attempt started", "started_at", "Derived in audit helper", "Required by contract"),
-    "started_at": ("Task attempt start timestamp", "Audit helper UTC clock", "datetime.now(timezone.utc)", "Required by contract"),
-    "finished_at": ("Task attempt completion timestamp", "Audit helper UTC clock", "Set on success/failure", "Nullable while STARTED"),
-    "source_table": ("Logical source table/path", "Task configuration", "Recorded by audited wrapper", "Nullable for external source"),
-    "target_table": ("Logical output table", "Task configuration", "Recorded by audited wrapper", "Nullable where not applicable"),
-    "requested_tickers": ("Number of requested market symbols", "Task metrics", "Count of normalized symbols", "Nullable for trade-only task"),
-    "input_rows": ("Rows read/processed", "Task metrics", "Task-defined count; see audit contract", "Nullable on task start/failure"),
-    "output_rows": ("Rows accepted or produced", "Task metrics", "Task-defined count; not always writes", "Nullable on task start/failure"),
-    "rejected_rows": ("Rows rejected in scoped processing", "Task metrics", "Can count records with multiple reasons once", "Nullable on task start/failure"),
-    "duplicate_rows": ("Duplicate/version rows", "Task metrics", "Task-specific duplicate definition", "Nullable on task start/failure"),
-    "issue_counts": ("Reason-to-count map", "Task metrics", "Map of issue reason to count", "Nullable; reasons may exceed rejected row count"),
-    "error_type": ("Exception class on failed attempt", "Caught exception", "type(error).__name__", "Nullable unless failed"),
-    "error_message": ("Exception summary on failed attempt", "Caught exception", "str(error); sensitivity review required", "Nullable unless failed"),
-    "id": ("Delta identity surrogate", "Delta table engine", "GENERATED ALWAYS AS IDENTITY", "Not a business key; omitted from MERGE source"),
-    "trade_id": ("Trade identifier on valuation break", "Silver trade", "Nullable for instrument/date-level break", "Nullable"),
-    "instrument_id": ("Instrument identifier on position/break", "Configured mapping or Silver trade", "STRING", "Required on accepted trade; nullable in break DDL"),
-    "currency": ("Financial reporting currency", "Trade/price source", "USD-only prototype", "Required on core accepted/Gold data"),
-}
-
-
-def status_jira(status: str) -> str:
-    return {"IMPLEMENTED": "Done", "PARTIALLY IMPLEMENTED": "In Progress", "PLANNED": "To Do", "TO BE CONFIRMED": "To Do"}[status]
-
+# Runtime project data is loaded from Trading_Project_Master.xlsx before generation.
+PLAN: dict = {}
+TESTS: list[dict] = []
+GANTT_ACTIVITY_DEFS: list[dict] = []
 
 def csv_text(items: list[str]) -> str:
     return "; ".join(items)
 
 
+def get_gantt_activities() -> list[dict]:
+    story_by_id = {story["id"]: story for story in PLAN["stories"]}
+    activity_ids = {definition["id"] for definition in GANTT_ACTIVITY_DEFS}
+    story_to_activity = {
+        story_id: definition["id"]
+        for definition in GANTT_ACTIVITY_DEFS
+        for story_id in definition["stories"]
+    }
+    activities = []
+    for definition in GANTT_ACTIVITY_DEFS:
+        stories = [story_by_id[story_id] for story_id in definition["stories"]]
+        sprints = {story["sprint"] for story in stories}
+        if len(sprints) != 1 or "" in sprints:
+            raise RuntimeError(f"Gantt workstream must map to exactly one scheduled sprint: {definition['id']}")
+        sprint_name = next(iter(sprints))
+        sprint = next(item for item in PLAN["sprints"] if item["name"].split(" (")[0] == sprint_name.split(" (")[0])
+        start_week = definition["start_week"]
+        finish_week = definition["finish_week"]
+        duration_weeks = definition["duration_weeks"]
+        if duration_weeks <= 0 or finish_week - start_week + 1 != duration_weeks:
+            raise RuntimeError(f"Gantt duration does not match start/finish weeks for {definition['id']}")
+        sprint_weeks = re.search(r"(\d+)\s*[-–]\s*(\d+)", sprint["weeks"])
+        if sprint_weeks:
+            sprint_start, sprint_finish = map(int, sprint_weeks.groups())
+            if start_week < sprint_start or finish_week > sprint_finish:
+                raise RuntimeError(f"Gantt activity {definition['id']} lies outside {sprint_name} window {sprint['weeks']}")
+        predecessor_stories = sorted({predecessor for story in stories for predecessor in story["depends"]})
+        expected_predecessors = {
+            story_to_activity[predecessor]
+            for predecessor in predecessor_stories
+            if predecessor in story_to_activity and story_to_activity[predecessor] != definition["id"]
+        } | {predecessor for predecessor in predecessor_stories if predecessor not in story_to_activity}
+        supplied_predecessors = set(definition.get("predecessor_ids", []))
+        if supplied_predecessors != expected_predecessors:
+            raise RuntimeError(
+                f"Delivery_Plan {definition['id']}: predecessor IDs do not match Jira story dependencies; "
+                f"expected={sorted(expected_predecessors)}, supplied={sorted(supplied_predecessors)}"
+            )
+        predecessor_activities = sorted(predecessor for predecessor in supplied_predecessors if predecessor in activity_ids)
+        external_predecessors = sorted(supplied_predecessors - activity_ids)
+        implementation_states = {story["status"] for story in stories}
+        if "BLOCKED" in implementation_states:
+            evidence_status = "BLOCKED"
+        elif "NOT VERIFIED" in implementation_states:
+            evidence_status = "NOT VERIFIED"
+        elif implementation_states == {"IMPLEMENTED"}:
+            evidence_status = "IMPLEMENTED"
+        elif implementation_states == {"PLANNED"}:
+            evidence_status = "PLANNED"
+        else:
+            evidence_status = "PARTIALLY IMPLEMENTED"
+        activities.append({
+            **definition,
+            "sprint": sprint_name,
+            "baseline": sprint["baseline"],
+            "start_week": start_week,
+            "finish_week": finish_week,
+            "duration_weeks": duration_weeks,
+            "duration_basis": definition["duration_basis"],
+            "story_points": sum(story["points"] for story in stories),
+            "predecessor_stories": predecessor_stories,
+            "predecessor_activities": predecessor_activities,
+            "external_predecessors": external_predecessors,
+            "evidence_status": evidence_status,
+            "schedule_status": "PLANNED",
+        })
+    return activities
+
+
+def gantt_dependency_edges() -> list[dict]:
+    activities = get_gantt_activities()
+    activity_by_id = {activity["id"]: activity for activity in activities}
+    story_to_activity = {
+        story_id: activity["id"]
+        for activity in activities
+        for story_id in activity["stories"]
+    }
+    edges = {}
+    for activity in activities:
+        for predecessor_ref in activity["predecessor_activities"]:
+            predecessor = activity_by_id[predecessor_ref]
+            key = (predecessor_ref, activity["id"])
+            edges[key] = {
+                "predecessor": predecessor_ref,
+                "successor": activity["id"],
+                "predecessor_story": "",
+                "successor_story": csv_text(activity["stories"]),
+                "type": "Finish-to-start",
+                "forward_in_sprint_windows": predecessor["finish_week"] < activity["start_week"],
+                "milestone": activity["milestone"],
+            }
+    return list(edges.values())
+
+
+def get_gantt_dependency_register() -> list[dict]:
+    stories = {story["id"]: story for story in PLAN["stories"]}
+    milestone_by_id = {milestone["id"]: milestone for milestone in PLAN["milestones"]}
+    rows = []
+    for activity in get_gantt_activities():
+        if not activity["predecessor_stories"]:
+            continue
+        predecessors = []
+        for predecessor_id in activity["predecessor_stories"]:
+            predecessor = stories.get(predecessor_id)
+            if predecessor is not None and predecessor["status"] == "IMPLEMENTED":
+                predecessors.append(f"current {predecessor_id}")
+            else:
+                predecessors.append(predecessor_id)
+        milestone = milestone_by_id[activity["milestone"]]
+        rows.append({
+            "successor": activity["id"],
+            "successor_story_ids": csv_text(activity["stories"]),
+            "predecessors": csv_text(predecessors),
+            "relationship": "Finish-to-start (planning dependency)",
+            "milestone_impact": f"{milestone['id']} {milestone['week']} — {milestone['name']}",
+            "baseline": True,
+        })
+
+    optional_milestone = milestone_by_id["M-05"]
+    for story in PLAN["stories"]:
+        if story["sprint"].split(" (")[0] != "Sprint 5" or not story["depends"]:
+            continue
+        predecessor_labels = [
+            f"current {predecessor}" if stories.get(predecessor, {}).get("status") == "IMPLEMENTED" else predecessor
+            for predecessor in sorted(story["depends"])
+        ]
+        rows.append({
+            "successor": story["id"],
+            "successor_story_ids": story["id"],
+            "predecessors": csv_text(predecessor_labels),
+            "relationship": "Finish-to-start (optional follow-on)",
+            "milestone_impact": f"{optional_milestone['id']} {optional_milestone['week']} — optional dashboard/data sign-off",
+            "baseline": False,
+        })
+    return rows
+
+
 def list_subtasks() -> list[dict]:
+    if "subtasks" in PLAN:
+        return PLAN["subtasks"]
     rows = []
     for story in PLAN["stories"]:
         for index, description in enumerate(story["subtasks"], start=1):
@@ -282,54 +210,378 @@ def list_subtasks() -> list[dict]:
     return rows
 
 
-def get_table_ddl() -> list[dict]:
-    records = []
-    for path in sorted((ROOT / "database" / "tables").rglob("*.sql")):
-        source = re.sub(r"--.*?$", "", path.read_text(encoding="utf-8"), flags=re.MULTILINE)
-        match = re.search(r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([\w.]+)\s*\((.*?)\)\s*USING\s+DELTA", source, flags=re.IGNORECASE | re.DOTALL)
-        if not match:
-            continue
-        table = match.group(1).lower()
-        table_description, grain, key, strategy, write_rule = TABLE_META[table]
-        body = match.group(2)
-        pieces, current, depth = [], [], 0
-        for character in body:
-            if character in "(<":
-                depth += 1
-            elif character in ")>":
-                depth -= 1
-            if character == "," and depth == 0:
-                pieces.append("".join(current).strip())
-                current = []
-            else:
-                current.append(character)
-        if current:
-            pieces.append("".join(current).strip())
-        for definition in pieces:
-            column_match = re.match(r"([A-Za-z_][\w]*)\s+(.+)$", definition.strip(), flags=re.DOTALL)
-            if not column_match:
-                continue
-            column, type_text = column_match.group(1), " ".join(column_match.group(2).split())
-            nullable = "Generated" if "GENERATED ALWAYS AS IDENTITY" in type_text.upper() else "No" if "NOT NULL" in type_text.upper() else "Yes"
-            data_type = re.sub(r"\s+NOT\s+NULL\s*$", "", type_text, flags=re.IGNORECASE)
-            description, source_field, transform, quality = COLUMN_META.get(
-                column,
-                (column.replace("_", " ").capitalize(), "Pipeline/source record", "Preserved or derived by owning task", "See table-level validation rules"),
-            )
-            records.append({
-                "Catalog": "cibc", "Schema": table.split(".")[1], "Table": table.split(".")[2],
-                "Table purpose": table_description, "Grain": grain, "Business/unique key assumption": key,
-                "Column": column, "Databricks SQL type": data_type, "Precision/scale": (re.search(r"\(([^)]*)\)", data_type).group(1) if re.search(r"\(([^)]*)\)", data_type) else "N/A"),
-                "Nullable": nullable, "Default": "None declared", "Description": description,
-                "Source field": source_field, "Transformation": transform, "Data quality rule": quality,
-                "Storage strategy": strategy, "Write semantics": write_rule, "DDL file": path.relative_to(ROOT).as_posix(),
-            })
-    expected = set(TABLE_META)
-    actual = {f'cibc.{item["Schema"]}.{item["Table"]}' for item in records}
-    missing = expected - actual
+def _read_master_sheet(workbook, sheet_name: str, required_columns: set[str]) -> list[dict]:
+    if sheet_name not in workbook.sheetnames:
+        raise ValueError(f"Master workbook is missing worksheet '{sheet_name}'")
+    sheet = workbook[sheet_name]
+    header_values = [cell.value for cell in sheet[1]]
+    if not header_values or any(not isinstance(value, str) or not value.strip() for value in header_values):
+        raise ValueError(f"{sheet_name}: row 1 must contain non-empty column names")
+    headers = [value.strip() for value in header_values]
+    duplicates = sorted({name for name in headers if headers.count(name) > 1})
+    if duplicates:
+        raise ValueError(f"{sheet_name}: duplicate column names: {duplicates}")
+    missing = sorted(required_columns - set(headers))
     if missing:
-        raise RuntimeError(f"Data dictionary missing DDL tables: {sorted(missing)}")
-    return records
+        raise ValueError(f"{sheet_name}: missing required columns: {missing}")
+    rows = []
+    for row_number, values in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+        if not any(value is not None and str(value).strip() for value in values):
+            continue
+        record = dict(zip(headers, values))
+        record["_row_number"] = row_number
+        rows.append(record)
+    return rows
+
+
+def _master_text(value) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def _master_refs(value) -> list[str]:
+    if value is None:
+        return []
+    return [part.strip() for part in re.split(r"[;\n,]+", str(value)) if part.strip()]
+
+
+def _master_acceptance(value, sheet_name: str, row_number: int) -> list[str]:
+    text = _master_text(value)
+    criteria = [re.sub(r"^\s*(?:[-*]|\d+[.)])\s*", "", line).strip() for line in text.splitlines()]
+    criteria = [criterion for criterion in criteria if criterion]
+    if not criteria and text:
+        criteria = [text]
+    if not criteria:
+        raise ValueError(f"{sheet_name} row {row_number}: acceptance criteria are required")
+    return criteria
+
+
+def load_master_model(master_path: Path = MASTER_PATH) -> tuple[dict, list[dict], list[dict]]:
+    """Read the project model from the user-maintained master workbook."""
+    master_path = Path(master_path)
+    if not master_path.is_file():
+        raise FileNotFoundError(f"Master workbook not found: {master_path}")
+    try:
+        workbook = load_workbook(master_path, read_only=True, data_only=True)
+    except Exception as exc:
+        raise ValueError(f"Could not open master workbook '{master_path}': {exc}") from exc
+
+    required_sheets = {
+        "Project_Overview", "Requirements", "Data_Dictionary", "Jira_Backlog", "Delivery_Plan",
+        "Milestones", "RAID", "Stakeholders_RACI", "Test_Plan", "Architecture", "Data_Sources",
+        "NFRs", "Sprints", "Dependencies", "Decisions", "Governance", "Change_Control",
+        "TPM_Scenarios", "Resource_Capacity",
+    }
+    missing_sheets = sorted(required_sheets - set(workbook.sheetnames))
+    if missing_sheets:
+        raise ValueError(f"Master workbook is missing required worksheets: {missing_sheets}")
+
+    project_rows = _read_master_sheet(workbook, "Project_Overview", {"Record Type", "Record ID", "Name", "Status", "Evidence"})
+    requirement_rows = _read_master_sheet(workbook, "Requirements", {"Requirement ID", "Type", "Parent ID", "Description", "Acceptance Criteria", "Implementation Status", "Related IDs"})
+    dictionary_rows = _read_master_sheet(workbook, "Data_Dictionary", {"Catalog", "Schema", "Table", "Column", "Databricks SQL type", "Nullable"})
+    backlog_rows = _read_master_sheet(workbook, "Jira_Backlog", {"Issue ID", "Issue Type", "Epic ID", "Epic Name", "Parent ID", "Summary", "Acceptance Criteria", "Priority", "Jira Status", "Implementation Status", "Dependencies", "Sprint"})
+    delivery_rows = _read_master_sheet(workbook, "Delivery_Plan", {"Record Type", "Activity ID", "Activity / Story", "Story IDs", "Sprint", "Start Week", "Finish Week", "Duration Weeks", "Milestone ID"})
+    milestone_rows = _read_master_sheet(workbook, "Milestones", {"Milestone ID", "Milestone", "Planned date/week", "Exit evidence", "Accountable owner", "Status"})
+    raid_rows = _read_master_sheet(workbook, "RAID", {"ID", "Type", "Description", "Probability", "Impact", "Owner", "Mitigation", "Due date/week", "Trigger", "Escalation path", "Status"})
+    stakeholder_rows = _read_master_sheet(workbook, "Stakeholders_RACI", {"Record Type", "Stakeholder Role", "Responsibility", "Activity"})
+    test_rows = _read_master_sheet(workbook, "Test_Plan", {"Test ID", "Test level", "Scope", "Requirement IDs", "Jira story", "Expected result", "Acceptance evidence"})
+    architecture_rows = _read_master_sheet(workbook, "Architecture", {"Component ID", "Section", "Component", "Description", "Implementation Status", "Evidence / Source", "Predecessor Component IDs"})
+    source_rows = _read_master_sheet(workbook, "Data_Sources", {"Source ID", "Source", "Status", "System/provider", "Format/interface", "Open decisions"})
+    nfr_rows = _read_master_sheet(workbook, "NFRs", {"NFR ID", "Quality attribute", "Acceptance target", "Status", "Evidence / gap"})
+    sprint_rows = _read_master_sheet(workbook, "Sprints", {"Sprint", "Timeline", "Plan classification", "Capacity (SP)", "Goal", "Planned stories", "Dependencies", "Deliverables", "Demonstration", "Exit criteria"})
+    dependency_rows = _read_master_sheet(workbook, "Dependencies", {"Predecessor ID", "Successor ID", "Relationship", "Dependency Type"})
+    decision_rows = _read_master_sheet(workbook, "Decisions", {"Decision ID", "Decision", "Status", "Evidence / Rationale"})
+    governance_rows = _read_master_sheet(workbook, "Governance", {"Activity", "Purpose", "Participants", "Frequency", "Outputs", "Escalation Route"})
+    change_rows = _read_master_sheet(workbook, "Change_Control", {"Change ID", "Request", "Justification", "Scope Impact", "Schedule Impact", "Resource Impact", "Risk Impact", "Decision", "Approver", "Status"})
+    scenario_rows = _read_master_sheet(workbook, "TPM_Scenarios", {"Scenario ID", "Scenario", "Trigger", "Impact", "Dependencies", "Mitigation", "Escalation", "Contingency", "Decision Required", "Status"})
+    resource_rows = _read_master_sheet(workbook, "Resource_Capacity", {"Delivery role", "Capacity assumption", "Workstream allocation", "Estimated effort (person-days)", "Capacity constraints / status"})
+
+    project_meta = {row["Record ID"]: row for row in project_rows if _master_text(row["Record Type"]).upper() == "META"}
+    if not _master_text(project_meta.get("PROJECT_TITLE", {}).get("Name")) or not _master_text(project_meta.get("PURPOSE", {}).get("Name")):
+        raise ValueError("Project_Overview requires PROJECT_TITLE and PURPOSE metadata rows")
+    requirements_by_type: dict[str, list[dict]] = {"BR": [], "FR": []}
+    requirement_ids: set[str] = set()
+    for row in requirement_rows:
+        requirement_id = _master_text(row["Requirement ID"])
+        kind = _master_text(row["Type"]).upper()
+        if not requirement_id:
+            raise ValueError(f"Requirements row {row['_row_number']}: Requirement ID is required")
+        if requirement_id in requirement_ids:
+            raise ValueError(f"Requirements row {row['_row_number']}: duplicate ID '{requirement_id}'")
+        requirement_ids.add(requirement_id)
+        if kind == "BR":
+            requirements_by_type["BR"].append({
+                "id": requirement_id, "description": _master_text(row["Description"]),
+                "why": _master_text(row.get("Business Justification")), "priority": _master_text(row.get("Priority")),
+                "acceptance": "; ".join(_master_acceptance(row["Acceptance Criteria"], "Requirements", row["_row_number"])),
+                "dependencies": _master_text(row.get("Dependencies")), "status": _master_text(row["Implementation Status"]),
+                "fr": _master_refs(row["Related IDs"]),
+            })
+        elif kind == "FR":
+            requirements_by_type["FR"].append({
+                "id": requirement_id, "br": _master_text(row["Parent ID"]), "description": _master_text(row["Description"]),
+                "input": _master_text(row.get("Input")), "logic": _master_text(row.get("Processing Logic")),
+                "output": _master_text(row.get("Expected Output")), "rules": _master_text(row.get("Business Rules")),
+                "errors": _master_text(row.get("Error Handling")),
+                "acceptance": "; ".join(_master_acceptance(row["Acceptance Criteria"], "Requirements", row["_row_number"])),
+                "components": _master_text(row.get("Components")), "status": _master_text(row["Implementation Status"]),
+                "stories": _master_refs(row["Related IDs"]),
+            })
+        elif kind != "NFR":
+            raise ValueError(f"Requirements row {row['_row_number']}: Type must be BR, FR, or NFR")
+
+    nfrs = [{
+        "id": _master_text(row["NFR ID"]), "name": _master_text(row["Quality attribute"]),
+        "target": _master_text(row["Acceptance target"]), "status": _master_text(row["Status"]),
+        "evidence": _master_text(row["Evidence / gap"]),
+    } for row in nfr_rows]
+    nfr_ids = [item["id"] for item in nfrs]
+    if not nfr_ids or len(nfr_ids) != len(set(nfr_ids)) or any(not item for item in nfr_ids):
+        raise ValueError("NFRs: IDs must be present and unique")
+
+    issue_by_id: dict[str, dict] = {}
+    allowed_issue_types = {"Epic", "Story", "Sub-task"}
+    for row in backlog_rows:
+        issue_id = _master_text(row["Issue ID"])
+        issue_type = _master_text(row["Issue Type"])
+        if not issue_id or issue_id in issue_by_id:
+            raise ValueError(f"Jira_Backlog row {row['_row_number']}: Issue ID must be present and unique")
+        if issue_type not in allowed_issue_types:
+            raise ValueError(f"Jira_Backlog row {row['_row_number']}: unsupported Issue Type '{issue_type}'")
+        issue_by_id[issue_id] = row
+    epics = [{"id": _master_text(row["Issue ID"]), "name": _master_text(row["Epic Name"]) or _master_text(row["Summary"]), "priority": _master_text(row["Priority"]), "jira_status": _master_text(row["Jira Status"])} for row in backlog_rows if _master_text(row["Issue Type"]) == "Epic"]
+    epic_ids = {item["id"] for item in epics}
+    stories = []
+    subtask_rows = [row for row in backlog_rows if _master_text(row["Issue Type"]) == "Sub-task"]
+    subtasks_by_parent: dict[str, list[str]] = defaultdict(list)
+    subtask_records = []
+    for row in subtask_rows:
+        parent_id = _master_text(row["Parent ID"])
+        description = _master_text(row.get("Subtask Description")) or _master_text(row["Summary"])
+        subtasks_by_parent[parent_id].append(description)
+        subtask_records.append({
+            "id": _master_text(row["Issue ID"]), "parent": parent_id, "description": description,
+            "output": _master_text(row.get("Acceptance Criteria")) or _master_text(row.get("Description")),
+            "dependency": _master_text(row["Dependencies"]), "epic": _master_text(row["Epic ID"]),
+            "status": _master_text(row["Implementation Status"]), "jira_status": _master_text(row["Jira Status"]),
+        })
+    for row in backlog_rows:
+        if _master_text(row["Issue Type"]) != "Story":
+            continue
+        story_id = _master_text(row["Issue ID"])
+        try:
+            points = int(row["Story Points"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Jira_Backlog row {row['_row_number']}: Story Points must be a positive integer") from exc
+        if points <= 0:
+            raise ValueError(f"Jira_Backlog row {row['_row_number']}: Story Points must be positive")
+        stories.append({
+            "id": story_id, "epic": _master_text(row["Epic ID"]), "title": _master_text(row["Summary"]),
+            "objective": _master_text(row.get("Objective")), "description": _master_text(row.get("Description")),
+            "criteria": _master_acceptance(row["Acceptance Criteria"], "Jira_Backlog", row["_row_number"]),
+            "points": points, "priority": _master_text(row["Priority"]),
+            "jira_status": _master_text(row["Jira Status"]), "status": _master_text(row["Implementation Status"]),
+            "sprint": _master_text(row["Sprint"]), "br": _master_refs(row.get("BR IDs")),
+            "fr": _master_refs(row.get("FR IDs")), "depends": _master_refs(row["Dependencies"]),
+            "inputs": _master_text(row.get("Inputs")), "outputs": _master_text(row.get("Expected Outputs")),
+            "subtasks": subtasks_by_parent.get(story_id, []),
+        })
+    story_ids = {item["id"] for item in stories}
+    if not epics or not stories:
+        raise ValueError("Jira_Backlog must contain at least one Epic and Story")
+    for row in backlog_rows:
+        issue_type = _master_text(row["Issue Type"])
+        if issue_type == "Story" and _master_text(row["Epic ID"]) not in epic_ids:
+            raise ValueError(f"Jira_Backlog story {row['Issue ID']}: invalid Epic ID '{row['Epic ID']}'")
+        if issue_type == "Sub-task":
+            parent_id = _master_text(row["Parent ID"])
+            parent = next((story for story in stories if story["id"] == parent_id), None)
+            if parent is None:
+                raise ValueError(f"Jira_Backlog subtask {row['Issue ID']}: invalid Parent ID '{parent_id}'")
+            if _master_text(row["Epic ID"]) != parent["epic"]:
+                raise ValueError(f"Jira_Backlog subtask {row['Issue ID']}: Epic ID does not match its parent")
+    br_ids = {item["id"] for item in requirements_by_type["BR"]}
+    fr_ids = {item["id"] for item in requirements_by_type["FR"]}
+    for story in stories:
+        if not story["title"] or not story["jira_status"] or not story["status"]:
+            raise ValueError(f"Jira_Backlog story {story['id']}: Summary and both statuses are required")
+        unknown = {
+            "BR": sorted(set(story["br"]) - br_ids),
+            "FR": sorted(set(story["fr"]) - fr_ids),
+            "dependencies": sorted(set(story["depends"]) - story_ids),
+        }
+        if any(unknown.values()):
+            raise ValueError(f"Jira_Backlog story {story['id']}: invalid references {unknown}")
+    for requirement in requirements_by_type["BR"]:
+        unknown = sorted(set(requirement["fr"]) - fr_ids)
+        if unknown:
+            raise ValueError(f"Business requirement {requirement['id']}: unknown FR references {unknown}")
+    for requirement in requirements_by_type["FR"]:
+        if requirement["br"] not in br_ids:
+            raise ValueError(f"Functional requirement {requirement['id']}: invalid parent BR '{requirement['br']}'")
+        unknown = sorted(set(requirement["stories"]) - story_ids)
+        if unknown:
+            raise ValueError(f"Functional requirement {requirement['id']}: unknown Jira story references {unknown}")
+
+    dependency_graph = {story["id"]: story["depends"] for story in stories}
+    visited: set[str] = set()
+    active: set[str] = set()
+
+    def visit(issue_id: str) -> None:
+        if issue_id in active:
+            raise ValueError(f"Jira_Backlog: circular dependency detected at '{issue_id}'")
+        if issue_id in visited:
+            return
+        active.add(issue_id)
+        for predecessor in dependency_graph[issue_id]:
+            visit(predecessor)
+        active.remove(issue_id)
+        visited.add(issue_id)
+
+    for issue_id in dependency_graph:
+        visit(issue_id)
+
+    sprints = []
+    sprint_by_key = {}
+    for row in sprint_rows:
+        name = _master_text(row["Sprint"])
+        try:
+            capacity = int(row["Capacity (SP)"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Sprints row {row['_row_number']}: Capacity (SP) must be a positive integer") from exc
+        if not name or name in sprint_by_key or capacity <= 0:
+            raise ValueError(f"Sprints row {row['_row_number']}: Sprint name and positive capacity must be unique")
+        sprint = {
+            "name": name, "weeks": _master_text(row["Timeline"]),
+            "baseline": _master_text(row["Plan classification"]) == "8-week baseline", "capacity": capacity,
+            "goal": _master_text(row["Goal"]), "stories": _master_refs(row["Planned stories"]),
+            "dependencies": _master_text(row["Dependencies"]), "deliverables": _master_text(row["Deliverables"]),
+            "demo": _master_text(row["Demonstration"]), "exit": _master_text(row["Exit criteria"]),
+        }
+        sprint_by_key[name.split(" (")[0]] = sprint
+        sprints.append(sprint)
+    for sprint_key, sprint in sprint_by_key.items():
+        assigned = {story["id"] for story in stories if story["sprint"].split(" (")[0] == sprint_key}
+        listed = set(sprint["stories"])
+        if assigned != listed:
+            raise ValueError(f"Sprints '{sprint['name']}': Planned stories mismatch; missing={sorted(assigned-listed)}, extra={sorted(listed-assigned)}")
+        points = sum(story["points"] for story in stories if story["sprint"].split(" (")[0] == sprint_key)
+        if points > sprint["capacity"]:
+            raise ValueError(f"Sprints '{sprint['name']}': capacity exceeded ({points}/{sprint['capacity']} SP)")
+    for story in stories:
+        if story["sprint"] and story["sprint"].split(" (")[0] not in sprint_by_key:
+            raise ValueError(f"Jira_Backlog story {story['id']}: unknown Sprint '{story['sprint']}'")
+
+    milestone_records = []
+    milestone_ids = set()
+    for row in milestone_rows:
+        milestone_id = _master_text(row["Milestone ID"])
+        if not milestone_id or milestone_id in milestone_ids:
+            raise ValueError(f"Milestones row {row['_row_number']}: Milestone ID must be present and unique")
+        milestone_ids.add(milestone_id)
+        milestone_records.append({
+            "id": milestone_id, "name": _master_text(row["Milestone"]), "week": _master_text(row["Planned date/week"]),
+            "evidence": _master_text(row["Exit evidence"]), "owner": _master_text(row["Accountable owner"]),
+            "dependencies": _master_refs(row.get("Dependencies")), "approvals": _master_text(row.get("Approval requirements")),
+            "gate": _master_text(row.get("Exit criteria")), "status": _master_text(row["Status"]),
+        })
+    gantt_defs = []
+    gantt_ids = set()
+    for row in delivery_rows:
+        if _master_text(row["Record Type"]).upper() != "WORKSTREAM":
+            continue
+        activity_id = _master_text(row["Activity ID"])
+        mapped_stories = _master_refs(row["Story IDs"])
+        if not activity_id or activity_id in gantt_ids or not mapped_stories or set(mapped_stories) - story_ids:
+            raise ValueError(f"Delivery_Plan row {row['_row_number']}: Activity ID must be unique and Story IDs valid")
+        gantt_ids.add(activity_id)
+        activity_sprints = {story["sprint"].split(" (")[0] for story in stories if story["id"] in mapped_stories}
+        if len(activity_sprints) != 1 or next(iter(activity_sprints)) != _master_text(row["Sprint"]).split(" (")[0]:
+            raise ValueError(f"Delivery_Plan {activity_id}: mapped stories must share the activity Sprint")
+        try:
+            start_week = int(row["Start Week"])
+            finish_week = int(row["Finish Week"])
+            duration_weeks = int(row["Duration Weeks"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Delivery_Plan {activity_id}: Start Week, Finish Week, and Duration Weeks must be integers") from exc
+        if start_week <= 0 or finish_week < start_week or duration_weeks <= 0 or finish_week - start_week + 1 != duration_weeks:
+            raise ValueError(f"Delivery_Plan {activity_id}: inconsistent start, finish, and duration weeks")
+        milestone_id = _master_text(row["Milestone ID"])
+        if milestone_id and milestone_id not in milestone_ids:
+            raise ValueError(f"Delivery_Plan {activity_id}: unknown milestone '{milestone_id}'")
+        gantt_defs.append({
+            "id": activity_id, "name": _master_text(row["Activity / Story"]), "stories": mapped_stories,
+            "milestone": milestone_id, "start_week": start_week, "finish_week": finish_week,
+            "duration_weeks": duration_weeks, "duration_basis": _master_text(row.get("Duration Basis")),
+            "owner": _master_text(row.get("Owner Role")), "predecessor_ids": _master_refs(row.get("Predecessor IDs")),
+            "schedule_status": _master_text(row.get("Schedule Status")),
+        })
+    baseline_story_ids = {story["id"] for story in stories if story["sprint"] and sprint_by_key[story["sprint"].split(" (")[0]]["baseline"]}
+    gantt_story_ids = [story_id for definition in gantt_defs for story_id in definition["stories"] if story_id in baseline_story_ids]
+    if len(gantt_story_ids) != len(set(gantt_story_ids)) or set(gantt_story_ids) != baseline_story_ids:
+        raise ValueError(f"Delivery_Plan workstreams must map each baseline story exactly once; missing={sorted(baseline_story_ids-set(gantt_story_ids))}, extra={sorted(set(gantt_story_ids)-baseline_story_ids)}")
+
+    architecture_ids = [_master_text(row["Component ID"]) for row in architecture_rows]
+    if any(not value for value in architecture_ids) or len(architecture_ids) != len(set(architecture_ids)):
+        raise ValueError("Architecture component IDs must be present and unique")
+    architecture_id_set = set(architecture_ids)
+    for row in architecture_rows:
+        for predecessor in _master_refs(row.get("Predecessor Component IDs")):
+            if predecessor not in architecture_id_set:
+                raise ValueError(f"Architecture {row['Component ID']}: unknown predecessor component '{predecessor}'")
+    workflow_components = {_master_text(row["Component"]) for row in architecture_rows if _master_text(row["Section"]) == "Workflow Task"}
+    known_dependencies = story_ids | epic_ids | architecture_id_set | workflow_components
+    for row in dependency_rows:
+        predecessor, successor = _master_text(row["Predecessor ID"]), _master_text(row["Successor ID"])
+        if predecessor not in known_dependencies or successor not in known_dependencies:
+            raise ValueError(f"Dependencies row {row['_row_number']}: unknown reference '{predecessor}' -> '{successor}'")
+    for milestone in milestone_records:
+        unknown = sorted(set(milestone["dependencies"]) - story_ids)
+        if unknown:
+            raise ValueError(f"Milestone {milestone['id']}: unknown story dependencies {unknown}")
+
+    model = {
+        "title": _master_text(project_meta["PROJECT_TITLE"]["Name"]),
+        "purpose": _master_text(project_meta["PURPOSE"]["Name"]),
+        "metadata": {key: _master_text(row.get("Name")) for key, row in project_meta.items()},
+        "status_legend": ["IMPLEMENTED", "PARTIALLY IMPLEMENTED", "PLANNED", "BLOCKED", "NOT VERIFIED"],
+        "business_requirements": requirements_by_type["BR"], "functional_requirements": requirements_by_type["FR"],
+        "nfrs": [{"id": _master_text(r["NFR ID"]), "name": _master_text(r["Quality attribute"]), "target": _master_text(r["Acceptance target"]), "status": _master_text(r["Status"]), "evidence": _master_text(r["Evidence / gap"])} for r in nfr_rows],
+        "sources": [{"id": _master_text(r["Source ID"]), "name": _master_text(r["Source"]), "status": _master_text(r["Status"]), "system": _master_text(r["System/provider"]), "format": _master_text(r["Format/interface"]), "location": _master_text(r.get("Location")), "frequency": _master_text(r.get("Frequency")), "volume": _master_text(r.get("Volume")), "keys": _master_text(r.get("Business key")), "versioning": _master_text(r.get("Version/correction")), "quality": _master_text(r.get("Quality rules")), "ingestion": _master_text(r.get("Ingestion strategy")), "failure": _master_text(r.get("Failure handling")), "open_items": _master_text(r.get("Open decisions"))} for r in source_rows],
+        "data_dictionary": [{key: value for key, value in row.items() if not key.startswith("_")} for row in dictionary_rows],
+        "epics": [{"id": _master_text(r["Issue ID"]), "name": _master_text(r["Epic Name"]) or _master_text(r["Summary"]), "priority": _master_text(r["Priority"]), "jira_status": _master_text(r["Jira Status"])} for r in backlog_rows if _master_text(r["Issue Type"]) == "Epic"],
+        "stories": stories, "sprints": sprints, "milestones": milestone_records,
+        "risks": [{"id": _master_text(r["ID"]), "type": _master_text(r["Type"]), "description": _master_text(r["Description"]), "probability": _master_text(r["Probability"]), "impact": _master_text(r["Impact"]), "owner": _master_text(r["Owner"]), "response": _master_text(r["Mitigation"]), "status": _master_text(r["Status"])} for r in raid_rows],
+        "raid_details": {_master_text(r["ID"]): {"due": _master_text(r["Due date/week"]), "trigger": _master_text(r["Trigger"]), "escalation": _master_text(r["Escalation path"])} for r in raid_rows},
+        "decisions": [{"id": _master_text(r["Decision ID"]), "decision": _master_text(r["Decision"]), "status": _master_text(r["Status"]), "evidence": _master_text(r["Evidence / Rationale"])} for r in decision_rows],
+        "stakeholders": [{"role": _master_text(r["Stakeholder Role"]), "responsibility": _master_text(r["Responsibility"]), "engagement": _master_text(r["Engagement Approach"]), "authority": _master_text(r["Decision Authority"]), "frequency": _master_text(r["Communication Frequency"]), "assignment": _master_text(r["Assignment / Evidence Status"])} for r in stakeholder_rows if _master_text(r["Record Type"]).upper() == "STAKEHOLDER"],
+        "raci_roles": [],
+        "raci": [],
+        "subtasks": subtask_records,
+        "resource_plan": [{"role": _master_text(r["Delivery role"]), "capacity": _master_text(r["Capacity assumption"]), "allocation": _master_text(r["Workstream allocation"]), "effort": r["Estimated effort (person-days)"], "constraints": _master_text(r["Capacity constraints / status"])} for r in resource_rows],
+        "governance": [{"activity": _master_text(r["Activity"]), "purpose": _master_text(r["Purpose"]), "participants": _master_text(r["Participants"]), "frequency": _master_text(r["Frequency"]), "outputs": _master_text(r["Outputs"]), "escalation": _master_text(r["Escalation Route"])} for r in governance_rows],
+        "scenarios": [{"id": _master_text(r["Scenario ID"]), "title": _master_text(r["Scenario"]), "trigger": _master_text(r["Trigger"]), "impact": _master_text(r["Impact"]), "dependencies": _master_text(r["Dependencies"]), "mitigation": _master_text(r["Mitigation"]), "escalation": _master_text(r["Escalation"]), "contingency": _master_text(r["Contingency"]), "decision": _master_text(r["Decision Required"]), "status": _master_text(r["Status"])} for r in scenario_rows],
+        "change_register": [{"id": _master_text(r["Change ID"]), "request": _master_text(r["Request"]), "justification": _master_text(r["Justification"]), "scope": _master_text(r["Scope Impact"]), "schedule": _master_text(r["Schedule Impact"]), "resource": _master_text(r["Resource Impact"]), "risk": _master_text(r["Risk Impact"]), "decision": _master_text(r["Decision"]), "approver": _master_text(r["Approver"]), "status": _master_text(r["Status"])} for r in change_rows],
+        "status_dashboard": [{"area": _master_text(r["Record ID"]), "rag": _master_text(r["Status"]), "detail": _master_text(r["Name"]), "evidence": _master_text(r["Evidence"])} for r in project_rows if _master_text(r["Record Type"]).upper() == "STATUS"],
+        "decision_required": [_master_text(r["Name"]) for r in project_rows if _master_text(r["Record Type"]).upper() == "DECISION_REQUIRED"],
+        "critical_path_note": _master_text(project_meta.get("CRITICAL_PATH_METHOD", {}).get("Name")) or "Key delivery dependencies; CPM is not calculated.",
+        "architecture": [{key: value for key, value in row.items() if not key.startswith("_")} for row in architecture_rows],
+        "dependencies": [{key: value for key, value in row.items() if not key.startswith("_")} for row in dependency_rows],
+        "delivery_plan": [{key: value for key, value in row.items() if not key.startswith("_")} for row in delivery_rows],
+    }
+    header_values = [cell.value for cell in workbook["Stakeholders_RACI"][1]]
+    model["raci_roles"] = [header for header in header_values if header not in {"Record Type", "Stakeholder Role", "Responsibility", "Engagement Approach", "Decision Authority", "Communication Frequency", "Assignment / Evidence Status", "Activity"}]
+    model["raci"] = [{"activity": _master_text(r["Activity"]), **{role: _master_text(r[role]) for role in model["raci_roles"]}} for r in stakeholder_rows if _master_text(r["Record Type"]).upper() == "RACI"]
+    tests = [{"id": _master_text(r["Test ID"]), "type": _master_text(r["Test level"]), "scope": _master_text(r["Scope"]), "requirements": _master_text(r["Requirement IDs"]), "story": _master_text(r["Jira story"]), "expected": _master_text(r["Expected result"]), "evidence": _master_text(r["Acceptance evidence"])} for r in test_rows]
+    test_ids = [test["id"] for test in tests]
+    if any(not test_id for test_id in test_ids) or len(test_ids) != len(set(test_ids)):
+        raise ValueError("Test_Plan: Test IDs must be present and unique")
+    for test in tests:
+        unknown_requirements = sorted(set(_master_refs(test["requirements"])) - requirement_ids)
+        unknown_stories = sorted(set(_master_refs(test["story"])) - story_ids)
+        if unknown_requirements or unknown_stories:
+            raise ValueError(f"Test_Plan {test['id']}: invalid references requirements={unknown_requirements}, stories={unknown_stories}")
+    workbook.close()
+    return model, tests, gantt_defs
 
 
 def load_color(value: str) -> PatternFill:
@@ -375,45 +627,61 @@ def add_records(workbook: Workbook, title: str, headers: list[str], records: lis
 def build_workbook(dictionary: list[dict]) -> None:
     workbook = Workbook()
     summary = workbook.active
-    summary.title = "Executive Summary"
+    summary.title = "Executive Dashboard"
     summary.sheet_view.showGridLines = False
     summary.merge_cells("A1:F1")
-    summary["A1"] = "TRADING PLATFORM | DELIVERY PLAN"
+    summary["A1"] = "TRADING PLATFORM | EXECUTIVE PROJECT DASHBOARD"
     summary["A1"].fill = load_color(NAVY)
     summary["A1"].font = Font(name="Aptos Display", size=20, bold=True, color=WHITE)
     summary["A1"].alignment = Alignment(vertical="center")
     summary.row_dimensions[1].height = 42
-    summary.append(["Evidence baseline", "2026-10-14; repository + docs/test_results.md dated 2026-10-11", "", "", "", ""])
+    summary.append(["Evidence baseline", AS_OF + "; repository plus dated run evidence 2026-10-11", "", "", "", ""])
     summary.append(["Purpose", PLAN["purpose"], "", "", "", ""])
-    summary.append(["Current implementation", "Six-task Databricks Workflow; 10 Delta tables in cibc.bronze/silver/gold; synthetic trades; Yahoo Finance prices; position/P&L; audit/rejects; notebooks/SQL.", "", "", "", ""])
-    summary.append(["Not implemented / not evidenced", "Deployed dashboard; approved market-data contract; non-dev Bundle targets/CI; automated alerting; production identity; approved retention/RTO/RPO; successful second same-input Databricks run.", "", "", "", ""])
-    summary.append(["Schedule", "Proposed 8-week / four 2-week sprints. 40 story points at assumed 10 points per sprint; no capacity reserve. Relative weeks only, not approved calendar dates.", "", "", "", ""])
-    summary.append(["Prototype limitation", "USD cash equities; ten in-code instruments; approximate NYSE calendar; full-history recompute; simplified daily P&L; fees, FX, corporate actions, dividends, settlement cash, and short-sale mechanics excluded.", "", "", "", ""])
-    summary.append(["Jira import", "Temporary planning IDs; map planning key to custom field, issue hierarchy and Epic Link to Jira fields, and replace planning Epic Link values with created Jira epic keys where required.", "", "", "", ""])
-    summary.append(["Status legend", "IMPLEMENTED = code/config/test/run evidence; PARTIALLY IMPLEMENTED = supporting behavior with a material gap; PLANNED = not delivered; TO BE CONFIRMED = evidence/owner absent.", "", "", "", ""])
-    summary.append(["Metric", "Value", "Interpretation", "", "", ""])
+    summary.append(["Area", "RAG", "Current position", "Evidence / caveat", "Decision owner", "Next action"])
+    for item in PLAN["status_dashboard"]:
+        summary.append([item["area"], item["rag"], item["detail"], item["evidence"], "Role TBD", "See decisions and RAID"])
+    summary.append(["Planning metric", "Value", "Meaning", "", "", ""])
     metrics = [
         ("Business requirements", "=COUNTA('Business Req'!A:A)-1", "Eight business outcomes"),
-        ("Functional requirements", "=COUNTA('Functional Req'!A:A)-1", "Detailed system behaviors"),
-        ("Jira epics", "=COUNTA(Epics!A:A)-1", "Planning hierarchy"),
-        ("Jira stories", "=COUNTA(Stories!A:A)-1", "Includes current-state and proposed work"),
-        ("Planned sprint points", "=SUM(Sprints!E2:E5)", "Proposed 8-week baseline; no reserve"),
-        ("Physical dictionary columns", "=COUNTA('Data Dictionary'!G:G)-1", "DDL-derived across 10 tables"),
+        ("Functional requirements", "=COUNTA('Functional Req'!A:A)-1", "Thirteen functional behaviors"),
+        ("Jira epics / stories / subtasks", "=COUNTA(Epics!A:A)-1&\" / \"&(COUNTA(Stories!A:A)-1)&\" / \"&(COUNTA(Subtasks!A:A)-1)", "Temporary planning IDs"),
+        ("Total estimated backlog points", "=SUM(Stories!G2:G100)", "Includes already implemented/reference scope; not remaining effort"),
+        ("8-week baseline points / capacity", "=SUM(Sprints!G2:G5)&\" / \"&SUM(Sprints!F2:F5)", "38 SP planned / 40 assumed; 2 SP headroom"),
+        ("Optional follow-on points", "=Sprints!G6", "Sprint 5 Weeks 9-10; not in baseline"),
+        ("DDL dictionary columns", "=COUNTA('Data Dictionary'!G:G)-1", "All 10 physical tables"),
     ]
     for metric in metrics:
         summary.append(list(metric) + ["", "", ""])
+    summary.append(["Completed deliverables (verified prototype)", "Six-task dev workflow; 10 Delta tables; synthetic 14-column trade CSV; Yahoo Finance adapter; Silver validation/rejects; positions and simplified daily P&L; audit/breaks; two notebooks and SQL.", "", "", "", ""])
+    summary.append(["Upcoming milestone", "Target", "Exit evidence", "Accountable role", "Dependencies", "Approval gate"])
+    for milestone in PLAN["milestones"]:
+        summary.append([milestone["name"], milestone["week"], milestone["evidence"], milestone["owner"], csv_text(milestone["dependencies"]), milestone["approvals"]])
+    summary.append(["Top risks", "Owner", "Trigger", "Mitigation", "Escalation", "Status"])
+    for risk in PLAN["risks"][:4]:
+        detail = PLAN["raid_details"][risk["id"]]
+        summary.append([risk["description"], risk["owner"], detail["trigger"], risk["response"], detail["escalation"], risk["status"]])
+    summary.append(["Key dependencies", "Source owners, market-data rights, supported Spark/Delta test runtime, access/security reviewer, Product Control acceptance, support owner.", "", "", "", ""])
+    summary.append(["Decisions required", "", "", "", "", ""])
+    for decision in PLAN["decision_required"]:
+        summary.append([decision, "", "", "", "", ""])
     for row_number in range(2, summary.max_row + 1):
         summary.cell(row_number, 1).font = Font(name="Aptos", size=10, bold=True, color=NAVY)
         for cell in summary[row_number]:
             cell.alignment = Alignment(vertical="top", wrap_text=True)
             if row_number % 2 == 0:
                 cell.fill = load_color("F5F8FA")
-    for cell in summary[9]:
-        cell.fill = load_color(TEAL)
-        cell.font = Font(bold=True, color=WHITE)
-    for col, width in {"A": 30, "B": 78, "C": 44, "D": 15, "E": 15, "F": 15}.items():
+    for row_number in [4, 10, 19, 24, 29, 34]:
+        if row_number <= summary.max_row:
+            for cell in summary[row_number]:
+                cell.fill = load_color(TEAL)
+                cell.font = Font(bold=True, color=WHITE)
+    for col, width in {"A": 42, "B": 42, "C": 68, "D": 75, "E": 38, "F": 66}.items():
         summary.column_dimensions[col].width = width
     summary.freeze_panes = "A2"
+    for row_number in range(2, summary.max_row + 1):
+        summary.row_dimensions[row_number].height = 36
+    for rag, color in [("GREEN", PALE_TEAL), ("AMBER", PALE_ORANGE), ("RED", PALE_RED), ("NOT VERIFIED", "E9ECEF")]:
+        summary.conditional_formatting.add(f"B5:B{summary.max_row}", FormulaRule(formula=[f'B5="{rag}"'], fill=load_color(color)))
 
     business = [[r["id"], r["description"], r["why"], r["priority"], r["acceptance"], r["dependencies"], r["status"], csv_text(r["fr"])] for r in PLAN["business_requirements"]]
     add_records(workbook, "Business Req", ["BR ID", "Requirement", "Business justification", "Priority", "Acceptance criteria", "Dependencies", "Implementation status", "Functional requirements"], business, {"A": 13, "B": 48, "C": 44, "D": 14, "E": 62, "F": 34, "G": 24, "H": 30})
@@ -453,32 +721,74 @@ def build_workbook(dictionary: list[dict]) -> None:
     add_records(workbook, "Dependencies", ["Predecessor", "Successor", "Relationship", "Dependency type", "Sprint/status", "Rationale / expected output"], dependency_rows, {"A": 22, "B": 24, "C": 18, "D": 42, "E": 20, "F": 82})
 
     sprint_rows = []
-    for sprint in PLAN["sprints"]:
-        sprint_rows.append([sprint["name"], sprint["weeks"], sprint["goal"], csv_text(sprint["stories"]), f'=SUMIF(Stories!$J:$J,A{len(sprint_rows)+2},Stories!$G:$G)', sprint["dependencies"], sprint["deliverables"], sprint["demo"], sprint["exit"]])
-    sprint_sheet = add_records(workbook, "Sprints", ["Sprint", "Timeline", "Sprint goal", "Planned stories", "Story points (formula)", "Dependencies", "Deliverables", "Demo outcome", "Exit criteria"], sprint_rows, {"A": 16, "B": 18, "C": 68, "D": 60, "E": 22, "F": 68, "G": 72, "H": 72, "I": 72})
+    for index, sprint in enumerate(PLAN["sprints"], start=2):
+        sprint_rows.append([sprint["name"], sprint["weeks"], "8-week baseline" if sprint["baseline"] else "Optional follow-on", sprint["goal"], csv_text(sprint["stories"]), sprint["capacity"], f'=SUMIF(Stories!$J:$J,A{index},Stories!$G:$G)', f"=F{index}-G{index}", sprint["dependencies"], sprint["deliverables"], sprint["demo"], sprint["exit"]])
+    sprint_sheet = add_records(workbook, "Sprints", ["Sprint", "Timeline", "Plan classification", "Sprint goal", "Planned stories", "Capacity (SP)", "Planned SP (formula)", "Headroom / (over) (formula)", "Dependencies", "Deliverables", "Demonstration", "Exit criteria"], sprint_rows, {"A": 20, "B": 35, "C": 24, "D": 68, "E": 60, "F": 18, "G": 24, "H": 28, "I": 68, "J": 72, "K": 72, "L": 72})
+    for row_number in range(2, sprint_sheet.max_row + 1):
+        sprint_sheet.conditional_formatting.add(f"H{row_number}", FormulaRule(formula=[f"H{row_number}<0"], fill=load_color(PALE_RED)))
+        sprint_sheet.conditional_formatting.add(f"H{row_number}", FormulaRule(formula=[f"H{row_number}>=0"], fill=load_color(PALE_TEAL)))
 
     gantt = workbook.create_sheet("Gantt")
-    gantt.append(["Planning ID", "Story", "Sprint", "Start week", "Duration (weeks)"] + [f"Week {week}" for week in range(1, 9)])
-    for story in PLAN["stories"]:
-        sprint_number = int(story["sprint"].split()[-1]) if story["sprint"] else 0
-        if not sprint_number:
-            continue
-        row = gantt.max_row + 1
-        gantt.append([story["id"], story["title"], story["sprint"], 2 * sprint_number - 1, 2] + [f'=--AND(COLUMN()-5>=$D{row},COLUMN()-5<$D{row}+$E{row})' for column in "FGHIJKLM"])
-    for column, width in {"A": 18, "B": 58, "C": 16, "D": 14, "E": 18, **{letter: 12 for letter in "FGHIJKLM"}}.items():
+    gantt_headers = ["Activity ID", "Workstream / task", "Jira story IDs", "Duration basis", "Start week", "Finish week", "Predecessor activity / story IDs", "Milestone", "Implementation evidence status", "Schedule status"] + [f"Week {week}" for week in range(1, 9)]
+    gantt.append(gantt_headers)
+    gantt_activities = get_gantt_activities()
+    for activity in gantt_activities:
+        row_number = gantt.max_row + 1
+        predecessor_ids = activity["predecessor_activities"] + activity["external_predecessors"]
+        gantt.append([
+            activity["id"], activity["name"], csv_text(activity["stories"]),
+            activity["duration_basis"], activity["start_week"], activity["finish_week"],
+            csv_text(predecessor_ids) or "None", activity["milestone"],
+            activity["evidence_status"], activity["schedule_status"],
+            *[f'=--AND(COLUMN()-10>=$E{row_number},COLUMN()-10<=$F{row_number})' for _ in range(8)],
+        ])
+    marker_row_number = gantt.max_row + 1
+    milestone_cells = ["" for _ in range(8)]
+    for milestone in PLAN["milestones"]:
+        week_match = re.search(r"Week\s+(\d+)", milestone["week"])
+        if week_match and 1 <= int(week_match.group(1)) <= 8:
+            week_index = int(week_match.group(1)) - 1
+            milestone_cells[week_index] = milestone["id"]
+    gantt.append(["", "Milestone markers", "", "Week-end gates", "", "", "", "", "", "", *milestone_cells])
+    for column, width in {"A": 14, "B": 36, "C": 32, "D": 48, "E": 12, "F": 12, "G": 38, "H": 16, "I": 30, "J": 20, **{letter: 12 for letter in "KLMNOPQR"}}.items():
         gantt.column_dimensions[column].width = width
-    style_sheet(gantt, freeze="F2")
-    gantt.row_dimensions[1].height = 34
-    for column in "FGHIJKLM":
-        gantt.conditional_formatting.add(f"{column}2:{column}{gantt.max_row}", FormulaRule(formula=[f"{column}2=1"], fill=load_color(TEAL), font=Font(color=TEAL)))
-        for row_number in range(2, gantt.max_row + 1):
+    style_sheet(gantt, freeze="K2")
+    gantt.auto_filter.ref = f"A1:R{marker_row_number - 1}"
+    gantt.row_dimensions[1].height = 42
+    for row_number in range(2, marker_row_number):
+        gantt.row_dimensions[row_number].height = 34
+        gantt.conditional_formatting.add(f"K{row_number}:R{row_number}", FormulaRule(formula=[f"K{row_number}=1"], fill=load_color("D8DEE3")))
+        evidence_fill = {
+            "IMPLEMENTED": PALE_TEAL,
+            "PARTIALLY IMPLEMENTED": PALE_ORANGE,
+            "PLANNED": "E9ECEF",
+            "BLOCKED": PALE_RED,
+            "NOT VERIFIED": "E9ECEF",
+        }.get(gantt.cell(row_number, 9).value, "E9ECEF")
+        gantt.cell(row_number, 9).fill = load_color(evidence_fill)
+        for column in "KLMNOPQR":
             gantt[f"{column}{row_number}"].number_format = ";;;"
+    for cell in gantt[marker_row_number]:
+        cell.fill = load_color(PALE_ORANGE)
+        cell.font = Font(name="Aptos", size=9, bold=True, color=NAVY)
+        cell.alignment = Alignment(vertical="center", horizontal="center", wrap_text=True)
+    gantt.row_dimensions[marker_row_number].height = 28
+    note_row = marker_row_number + 2
+    gantt.cell(note_row, 1, "Scheduling note")
+    gantt.cell(note_row, 2, "Bars show assigned two-week sprint windows only; they are not task-level durations. No kickoff date, activity duration, resource-levelled calendar, CPM dates, or float is evidenced. Sprint 5 (Weeks 9-10) is optional follow-on and is not plotted.")
+    gantt.merge_cells(start_row=note_row, start_column=2, end_row=note_row, end_column=18)
+    gantt.cell(note_row, 1).font = Font(bold=True, color=NAVY)
+    gantt.cell(note_row, 2).alignment = Alignment(wrap_text=True, vertical="top")
+    gantt.row_dimensions[note_row].height = 45
 
-    milestone_rows = [[m["id"], m["name"], m["week"], m["evidence"], m["owner"], m["gate"], "Proposed"] for m in PLAN["milestones"]]
-    add_records(workbook, "Milestones", ["Milestone ID", "Milestone", "Target timing", "Evidence", "Accountable owner", "Exit gate", "Status"], milestone_rows, {"A": 15, "B": 42, "C": 20, "D": 68, "E": 32, "F": 78, "G": 18})
+    milestone_rows = [[m["id"], m["name"], m["week"], m["evidence"], m["owner"], csv_text(m["dependencies"]), m["approvals"], m["gate"], "PLANNED"] for m in PLAN["milestones"]]
+    milestone_sheet = add_records(workbook, "Milestone Tracker", ["Milestone ID", "Milestone", "Planned date/week", "Exit evidence", "Accountable owner", "Dependencies", "Approval requirements", "Exit criteria", "Status"], milestone_rows, {"A": 15, "B": 46, "C": 32, "D": 74, "E": 42, "F": 42, "G": 70, "H": 78, "I": 20})
 
-    raid_rows = [[r[k] for k in ("id", "type", "description", "probability", "impact", "response", "owner", "status")] for r in PLAN["risks"]]
-    raid = add_records(workbook, "RAID", ["RAID ID", "Type", "Description", "Probability", "Impact", "Mitigation / action", "Owner", "Status"], raid_rows, {"A": 15, "B": 18, "C": 68, "D": 16, "E": 16, "F": 76, "G": 30, "H": 18})
+    raid_rows = []
+    for risk in PLAN["risks"]:
+        detail = PLAN["raid_details"][risk["id"]]
+        raid_rows.append([risk["id"], risk["type"], risk["description"], risk["probability"], risk["impact"], risk["owner"], risk["response"], detail["due"], detail["trigger"], detail["escalation"], risk["status"]])
+    raid = add_records(workbook, "RAID", ["ID", "Type", "Description", "Probability", "Impact", "Owner", "Mitigation / action", "Due date/week", "Trigger", "Escalation path", "Status"], raid_rows, {"A": 15, "B": 18, "C": 68, "D": 16, "E": 16, "F": 32, "G": 76, "H": 30, "I": 72, "J": 72, "K": 20})
 
     trace_rows = []
     for br in PLAN["business_requirements"]:
@@ -495,21 +805,51 @@ def build_workbook(dictionary: list[dict]) -> None:
     test_rows = [[t["id"], t["type"], t["scope"], t["requirements"], t["story"], t["expected"], t["evidence"], "Planned / existing tests to rerun"] for t in TESTS]
     add_records(workbook, "Test Plan", ["Test ID", "Test level", "Scope", "Requirement IDs", "Jira story", "Expected result", "Acceptance evidence", "Status / note"], test_rows, {"A": 14, "B": 28, "C": 76, "D": 36, "E": 30, "F": 76, "G": 84, "H": 34})
 
-    current_rows = [
-        ["Source", "Trade input", "IMPLEMENTED", "Synthetic 14-field CSV; 1,200-row sample; UC Volume input", "No real trading-system connector; full snapshot and missing-ID semantics need business decision"],
-        ["Source", "Market prices", "IMPLEMENTED", "yfinance unadjusted close; ten defaults; USD", "No approved/licensed production provider evidence"],
-        ["Data", "Reference data", "PARTIALLY IMPLEMENTED", "Ten instrument mappings in Python config", "No persisted/effective-dated instruments, books, or counterparties"],
-        ["Pipeline", "Bronze/Silver/Gold", "IMPLEMENTED", "10 physical Delta tables; PySpark modules; validation, rejects, lineage", "No reporting schema/table or explicit table PK enforcement"],
-        ["Calculations", "Positions/P&L", "IMPLEMENTED", "Position/P&L transforms and dated independent SQL reconciliation", "Simplified USD cash equities; no fees/FX/dividends/corporate actions"],
-        ["Reporting", "Notebook and SQL", "IMPLEMENTED", "Run-trigger and read-only report notebooks; demo queries", "No deployed dashboard; report has known unavailable counters"],
-        ["Operations", "Audit/recovery", "PARTIALLY IMPLEMENTED", "Task attempt logs; reject history; valuation breaks; safe rerun code", "No automated alerts; second identical Databricks run was queued in dated evidence"],
-        ["Deployment", "Databricks Bundle", "PARTIALLY IMPLEMENTED", "Dev target, wheel build, deploy script; six-task Job", "Schedule paused; no CI/test/prod targets or production principal evidenced"],
-        ["Testing", "pytest and Databricks run", "PARTIALLY IMPLEMENTED", "Dated run 2026-10-11: six tasks succeeded; positions 5,990 and P&L 835 reconciled with zero mismatches. Focused test run found 3 stale DDL-path failures.", "Tests expect removed trades_constraints.sql / market_prices_constraints.sql; constraints are in consolidated DDL. Second run unverified; Spark/Delta runtime required for full integration proof"],
-    ]
+    current_rows = [[
+        _master_text(item["Section"]), _master_text(item["Component"]), _master_text(item["Implementation Status"]),
+        _master_text(item["Description"]), _master_text(item["Evidence / Source"]),
+    ] for item in PLAN["architecture"]]
     add_records(workbook, "Current State", ["Area", "Capability", "Status", "Verified evidence", "Gap / limitation"], current_rows, {"A": 18, "B": 34, "C": 24, "D": 92, "E": 96})
 
+    stakeholder_rows = [[item["role"], item["responsibility"], item["engagement"], item["authority"], item["frequency"], item["assignment"]] for item in PLAN["stakeholders"]]
+    add_records(workbook, "Stakeholder Register", ["Stakeholder role", "Responsibility", "Engagement approach", "Decision authority", "Communication frequency", "Assignment / evidence status"], stakeholder_rows, {"A": 34, "B": 70, "C": 62, "D": 70, "E": 52, "F": 58})
+
+    raci_rows = [[activity["activity"]] + [activity[role] for role in PLAN["raci_roles"]] for activity in PLAN["raci"]]
+    raci_sheet = add_records(workbook, "RACI Matrix", ["Activity"] + PLAN["raci_roles"], raci_rows, {"A": 52, **{chr(66 + index): 28 for index in range(len(PLAN["raci_roles"]))}})
+    raci_validation = DataValidation(type="list", formula1='"A,R,C,I,A/R"', allow_blank=False)
+    raci_sheet.add_data_validation(raci_validation)
+    raci_validation.add(f"B2:K{raci_sheet.max_row}")
+
+    delivery_rows = []
+    story_by_id = {story["id"]: story for story in PLAN["stories"]}
+    for activity in PLAN["delivery_plan"]:
+        if _master_text(activity["Record Type"]).upper() != "WORKSTREAM":
+            continue
+        story_ids = _master_refs(activity["Story IDs"])
+        statuses = {story_by_id[story_id]["status"] for story_id in story_ids}
+        implementation_status = next(iter(statuses)) if len(statuses) == 1 else "PARTIALLY IMPLEMENTED"
+        delivery_rows.append([
+            _master_text(activity["Activity ID"]), _master_text(activity["Activity / Story"]),
+            _master_text(activity.get("Owner Role")), activity["Duration Weeks"], activity["Start Week"],
+            activity["Finish Week"], _master_text(activity.get("Predecessor IDs")) or "None",
+            _master_text(activity["Milestone ID"]) or "None", implementation_status, csv_text(story_ids),
+        ])
+    add_records(workbook, "Integrated Delivery Plan", ["Workstream ID", "Activity", "Proposed owner role", "Duration (weeks)", "Start week", "End week", "Predecessors", "Milestone", "Implementation status", "Story IDs"], delivery_rows, {"A": 18, "B": 64, "C": 48, "D": 22, "E": 20, "F": 20, "G": 42, "H": 22, "I": 26, "J": 44})
+
+    resource_rows = [[item["role"], item["capacity"], item["allocation"], item["effort"], "Baseline effort = capacity per sprint × 4 sprints", item["constraints"]] for item in PLAN["resource_plan"]]
+    add_records(workbook, "Resource Capacity", ["Delivery role", "Capacity assumption", "Workstream allocation", "Estimated effort (person-days)", "Estimate basis", "Capacity constraints / status"], resource_rows, {"A": 36, "B": 44, "C": 72, "D": 32, "E": 48, "F": 76})
+
+    governance_rows = [[item["activity"], item["purpose"], item["participants"], item["frequency"], item["outputs"], item["escalation"]] for item in PLAN["governance"]]
+    add_records(workbook, "Governance", ["Activity", "Purpose", "Participants", "Frequency", "Outputs", "Escalation route"], governance_rows, {"A": 38, "B": 72, "C": 66, "D": 48, "E": 64, "F": 78})
+
+    change_rows = [[item["id"], item["request"], item["justification"], item["scope"], item["schedule"], item["resource"], item["risk"], item["decision"], item["approver"], item["status"]] for item in PLAN["change_register"]]
+    add_records(workbook, "Change Control", ["Change request", "Request / status", "Business justification", "Scope impact", "Schedule impact", "Resource impact", "Risk impact", "Decision", "Approver", "Status"], change_rows, {"A": 20, "B": 58, "C": 64, "D": 64, "E": 46, "F": 44, "G": 66, "H": 64, "I": 58, "J": 22})
+
+    scenario_rows = [[item[key] for key in ("id", "title", "trigger", "impact", "dependencies", "mitigation", "escalation", "contingency", "decision", "status")] for item in PLAN["scenarios"]]
+    add_records(workbook, "TPM Scenarios", ["Scenario ID", "Label", "Trigger", "Delivery impact", "Critical dependencies", "Mitigation", "Escalation", "Contingency", "Decision required", "Status"], scenario_rows, {"A": 14, "B": 58, "C": 70, "D": 78, "E": 72, "F": 82, "G": 72, "H": 76, "I": 82, "J": 42})
+
     # Consistent status/priority/sprint choices and visual cues across worksheets.
-    status_validation = DataValidation(type="list", formula1='"IMPLEMENTED,PARTIALLY IMPLEMENTED,PLANNED,TO BE CONFIRMED"', allow_blank=True)
+    status_validation = DataValidation(type="list", formula1='"IMPLEMENTED,PARTIALLY IMPLEMENTED,PLANNED,BLOCKED,NOT VERIFIED"', allow_blank=True)
     priority_validation = DataValidation(type="list", formula1='"High,Medium,Low,Must,Should"', allow_blank=True)
     sprint_validation = DataValidation(type="list", formula1='"Sprint 1,Sprint 2,Sprint 3,Sprint 4"', allow_blank=True)
     story_sheet.add_data_validation(status_validation)
@@ -518,12 +858,12 @@ def build_workbook(dictionary: list[dict]) -> None:
     priority_validation.add(f"H2:H{story_sheet.max_row}")
     story_sheet.add_data_validation(sprint_validation)
     sprint_validation.add(f"J2:J{story_sheet.max_row}")
-    for column, status, fill in [("I", "IMPLEMENTED", PALE_TEAL), ("I", "PARTIALLY IMPLEMENTED", PALE_ORANGE), ("I", "PLANNED", PALE_RED), ("I", "TO BE CONFIRMED", "E9ECEF")]:
+    for column, status, fill in [("I", "IMPLEMENTED", PALE_TEAL), ("I", "PARTIALLY IMPLEMENTED", PALE_ORANGE), ("I", "PLANNED", PALE_RED), ("I", "BLOCKED", PALE_RED), ("I", "NOT VERIFIED", "E9ECEF")]:
         story_sheet.conditional_formatting.add(f"{column}2:{column}{story_sheet.max_row}", FormulaRule(formula=[f'{column}2="{status}"'], fill=load_color(fill)))
     for status, fill in [("Open", PALE_RED), ("To confirm", PALE_ORANGE), ("Proposed", "E9ECEF")]:
         raid.conditional_formatting.add(f"H2:H{raid.max_row}", FormulaRule(formula=[f'H2="{status}"'], fill=load_color(fill)))
     for sheet in workbook.worksheets:
-        if sheet.title != "Executive Summary":
+        if sheet.title != "Executive Dashboard":
             sheet.auto_filter.ref = sheet.dimensions
     workbook.calculation.fullCalcOnLoad = True
     workbook.calculation.forceFullCalc = True
@@ -534,12 +874,12 @@ def build_workbook(dictionary: list[dict]) -> None:
 def jira_rows() -> list[dict]:
     rows = []
     for epic in PLAN["epics"]:
-        rows.append({"Issue ID": epic["id"], "Issue Type": "Epic", "Planning Key": epic["id"], "Epic Name": epic["name"], "Epic Link": "", "Parent ID": "", "Summary": epic["name"], "Description": f"Delivery epic: {epic['name']}. Includes evidenced current functionality and linked proposed completion work.", "Acceptance Criteria": "See linked stories; epic is complete when all committed child stories meet their acceptance criteria.", "Priority": epic["priority"], "Story Points": "", "Status": "To Do", "Implementation Status": "Mixed; see stories", "Dependencies": "", "Sprint": "", "Requirement ID": ""})
+        rows.append({"Issue ID": epic["id"], "Issue Type": "Epic", "Planning Key": epic["id"], "Epic Name": epic["name"], "Epic Link": "", "Parent ID": "", "Summary": epic["name"], "Description": f"Delivery epic: {epic['name']}. Includes evidenced current functionality and linked proposed completion work.", "Acceptance Criteria": "See linked stories; epic is complete when all committed child stories meet their acceptance criteria.", "Priority": epic["priority"], "Story Points": "", "Status": epic["jira_status"], "Implementation Status": "Mixed; see stories", "Dependencies": "", "Sprint": "", "Requirement ID": ""})
     for story in PLAN["stories"]:
-        rows.append({"Issue ID": story["id"], "Issue Type": "Story", "Planning Key": story["id"], "Epic Name": "", "Epic Link": story["epic"], "Parent ID": "", "Summary": story["title"], "Description": f"Objective: {story['objective']}\n\nDetail: {story['description']}\n\nInputs: {story['inputs']}\n\nExpected outputs: {story['outputs']}", "Acceptance Criteria": "\n".join(f"- {criterion}" for criterion in story["criteria"]), "Priority": story["priority"], "Story Points": story["points"], "Status": status_jira(story["status"]), "Implementation Status": story["status"], "Dependencies": csv_text(story["depends"]), "Sprint": story["sprint"], "Requirement ID": csv_text(story["br"] + story["fr"])})
+        rows.append({"Issue ID": story["id"], "Issue Type": "Story", "Planning Key": story["id"], "Epic Name": "", "Epic Link": story["epic"], "Parent ID": "", "Summary": story["title"], "Description": f"Objective: {story['objective']}\n\nDetail: {story['description']}\n\nInputs: {story['inputs']}\n\nExpected outputs: {story['outputs']}", "Acceptance Criteria": "\n".join(f"- {criterion}" for criterion in story["criteria"]), "Priority": story["priority"], "Story Points": story["points"], "Status": story["jira_status"], "Implementation Status": story["status"], "Dependencies": csv_text(story["depends"]), "Sprint": story["sprint"], "Requirement ID": csv_text(story["br"] + story["fr"])})
     for subtask in list_subtasks():
         story = next(item for item in PLAN["stories"] if item["id"] == subtask["parent"])
-        rows.append({"Issue ID": subtask["id"], "Issue Type": "Sub-task", "Planning Key": subtask["id"], "Epic Name": "", "Epic Link": story["epic"], "Parent ID": subtask["parent"], "Summary": subtask["description"], "Description": f"Expected output: {subtask['output']}\nDependency: {subtask['dependency']}.", "Acceptance Criteria": subtask["output"], "Priority": story["priority"], "Story Points": "", "Status": status_jira(story["status"]), "Implementation Status": story["status"], "Dependencies": subtask["parent"], "Sprint": story["sprint"], "Requirement ID": csv_text(story["br"] + story["fr"])})
+        rows.append({"Issue ID": subtask["id"], "Issue Type": "Sub-task", "Planning Key": subtask["id"], "Epic Name": "", "Epic Link": story["epic"], "Parent ID": subtask["parent"], "Summary": subtask["description"], "Description": f"Expected output: {subtask['output']}\nDependency: {subtask['dependency']}.", "Acceptance Criteria": subtask["output"], "Priority": story["priority"], "Story Points": "", "Status": subtask["status"], "Implementation Status": subtask["status"], "Dependencies": subtask["dependency"], "Sprint": story["sprint"], "Requirement ID": csv_text(story["br"] + story["fr"])})
     return rows
 
 
@@ -609,6 +949,38 @@ def new_deck() -> Presentation:
     return presentation
 
 
+SPEAKER_NOTES = {
+    "cover": "TPM perspective: frame this as an evidence-led proof of concept and proposed enterprise delivery plan. Avoid implying Morgan Stanley sponsorship, production use, approvals, or outcomes not evidenced.",
+    "01 | Context": "TPM perspective: lead with the business outcome and boundaries. Separate a demonstrated calculation from institutional data rights, control sign-off, and production readiness.",
+    "02 | Source systems": "TPM perspective: identify owners and service contracts as dependencies. Explain that provider selection is a decision gate, not a technical assumption the team can make alone.",
+    "03 | Components": "TPM perspective: explain the architecture in terms of ownership, contracts, control points, and the smallest viable target state. Keep proposed controls visibly distinct.",
+    "04 | Orchestration": "TPM perspective: show which workstreams can proceed in parallel and where the data dependencies join. Do not call this a calculated critical path.",
+    "05 | Data model": "TPM perspective: emphasize grain, financial precision, lineage, and business-key assumptions. Ask control owners to approve definitions before scaling.",
+    "06 | Financial logic": "TPM perspective: state assumptions before results. Use reconciliation and Product Control acceptance as gates; do not generalize the prototype formula to all instruments.",
+    "07 | Deploy and operate": "TPM perspective: treat identity, promotion, alerting, support, rerun evidence, and schedule activation as explicit readiness decisions.",
+    "08 | Current and target": "TPM perspective: preserve the current architecture unless an approved requirement demands change. Sequence target controls behind source, security, and support decisions.",
+    "09 | Quality and reconciliation": "TPM perspective: define evidence and defect thresholds before the test cycle; a failed financial reconciliation is a release blocker until triaged and accepted.",
+    "10 | Security and operations": "TPM perspective: assign named control owners before deployment. A grants template or a successful dev run is not evidence of production approval.",
+    "01 | Delivery baseline": "TPM perspective: establish the actual baseline first, then state the proposed work. Quote dated run evidence and its limitations accurately.",
+    "02 | Business value": "TPM perspective: connect measurable outcomes to acceptance evidence. Targets marked proposed remain discussion points until owners approve them.",
+    "03 | Stakeholders": "TPM perspective: clarify decision rights and escalation routes. Roles shown are proposed stakeholder functions, not named participants or completed interviews.",
+    "04 | Requirements": "TPM perspective: show the control chain from business outcome to acceptance evidence. Traceability makes scope changes assessable rather than informal.",
+    "05 | Delivery strategy": "TPM perspective: plan around capability outcomes and dependencies. Current implementation items are evidence, not new delivery points.",
+    "06 | Roadmap": "TPM perspective: use relative weeks and capacity assumptions only. Reforecast when source, access, or stakeholder decisions move; optional work is not hidden in the baseline.",
+    "07 | Dependency drivers": "TPM perspective: distinguish a dependency-led sequence from a CPM critical path. We lack activity durations, resource leveling, and float to calculate the latter.",
+    "08 | Risk and governance": "TPM perspective: review triggers and owners weekly; escalate before the milestone is missed. Governance is deliberately proportionate to a small team.",
+    "09 | Test and release": "TPM perspective: require reproducible evidence, business reconciliation, operational acceptance, and an explicit no-go path. Skips are not passes.",
+    "10 | Status": "TPM perspective: report variance and uncertainty without spin. State known failures, unverified results, and the decision or owner needed to recover.",
+    "11 | Next steps": "TPM perspective: close the highest-risk decisions first, preserve the paused schedule, and make any added scope pass change control.",
+    "12 | Integrated Gantt": "TPM perspective: explain the bars as proposed sprint allocation windows, not task durations. The schedule uses relative weeks only; status colors distinguish evidence from planned schedule. Point out that no kickoff date or activity-level duration was supplied.",
+    "13 | Dependency detail": "TPM perspective: walk the exact story-level finish-to-start relationships, including current but undated prerequisites. Explicitly state that CPM dates and float are not calculated because points and sprint windows do not provide activity durations or resource leveling.",
+}
+
+
+def add_speaker_notes(slide, text: str) -> None:
+    slide.notes_slide.notes_text_frame.text = text
+
+
 def slide_base(presentation: Presentation, title: str, section: str, number: int):
     slide = presentation.slides.add_slide(presentation.slide_layouts[6])
     slide.background.fill.solid()
@@ -625,10 +997,11 @@ def slide_base(presentation: Presentation, title: str, section: str, number: int
     line.line.fill.background()
     add_text(slide, 0.58, 7.17, 10.5, 0.18, f"TRADING PLATFORM  |  EVIDENCE BASELINE {AS_OF}  |  PROPOSED DELIVERY PLAN", 8, MUTED)
     add_text(slide, 12.15, 7.15, 0.55, 0.20, str(number).zfill(2), 9, MUTED, True, align=PP_ALIGN.RIGHT)
+    add_speaker_notes(slide, SPEAKER_NOTES.get(section, "TPM perspective: connect the technical evidence to an accountable decision, dependency, acceptance gate, or risk. Label assumptions and unverified results explicitly."))
     return slide
 
 
-def cover_slide(presentation: Presentation, title: str, subtitle: str, label: str):
+def cover_slide(presentation: Presentation, title: str, subtitle: str, label: str, notes: str | None = None):
     slide = presentation.slides.add_slide(presentation.slide_layouts[6])
     slide.background.fill.solid()
     slide.background.fill.fore_color.rgb = ppt_color(NAVY)
@@ -649,25 +1022,88 @@ def cover_slide(presentation: Presentation, title: str, subtitle: str, label: st
     add_box(slide, 9.66, 4.49, 2.95, 1.18, "GOLD", "Positions, valuation, P&L", "E7F0F3", ORANGE, 17, 12)
     add_arrow(slide, 11.14, 2.55, 11.14, 2.84, "95D8CF", 2)
     add_arrow(slide, 11.14, 4.12, 11.14, 4.41, "95D8CF", 2)
+    add_speaker_notes(slide, notes or SPEAKER_NOTES["cover"])
     return slide
+
+
+def _architecture_by_id() -> dict[str, dict]:
+    return {_master_text(row.get("Component ID")): row for row in PLAN.get("architecture", [])}
+
+
+def _architecture_description(component_id: str, fallback: str = "") -> str:
+    row = _architecture_by_id().get(component_id)
+    return _master_text(row.get("Description")) if row else fallback
+
+
+def add_architecture_register_slides(presentation: Presentation) -> None:
+    architecture = PLAN.get("architecture", [])
+    for page_index, start in enumerate(range(0, len(architecture), 9), start=1):
+        subset = architecture[start:start + 9]
+        slide = slide_base(
+            presentation,
+            f"Architecture Register | Components {start + 1}-{start + len(subset)}",
+            f"11 | Master workbook architecture register ({page_index})",
+            11 + page_index,
+        )
+        columns = [
+            ("Component ID", 0.88), ("Section", 1.12), ("Component", 1.55),
+            ("Description", 4.15), ("Implementation Status", 1.30),
+            ("Evidence / Source", 1.72), ("Requirement / Story IDs", 1.25),
+            ("Predecessor Component IDs", 1.20),
+        ]
+        table_left, table_top, table_width, table_height = 0.55, 1.45, 12.22, 5.38
+        table = slide.shapes.add_table(len(subset) + 1, len(columns), Inches(table_left), Inches(table_top), Inches(table_width), Inches(table_height)).table
+        for column_index, (header, width) in enumerate(columns):
+            table.columns[column_index].width = Inches(width)
+            cell = table.cell(0, column_index)
+            cell.text = header
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = ppt_color(NAVY)
+            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+            for paragraph in cell.text_frame.paragraphs:
+                paragraph.font.name = "Aptos"
+                paragraph.font.size = Pt(7.3)
+                paragraph.font.bold = True
+                paragraph.font.color.rgb = ppt_color(WHITE)
+        for row_index, record in enumerate(subset, start=1):
+            values = [
+                record.get("Component ID", ""), record.get("Section", ""), record.get("Component", ""),
+                record.get("Description", ""), record.get("Implementation Status", ""),
+                record.get("Evidence / Source", ""), record.get("Requirement / Story IDs", ""),
+                record.get("Predecessor Component IDs", ""),
+            ]
+            for column_index, value in enumerate(values):
+                cell = table.cell(row_index, column_index)
+                cell.text = _master_text(value)
+                cell.fill.solid()
+                cell.fill.fore_color.rgb = ppt_color(WHITE if row_index % 2 else "F3F6F7")
+                cell.vertical_anchor = MSO_ANCHOR.TOP
+                for paragraph in cell.text_frame.paragraphs:
+                    paragraph.font.name = "Aptos"
+                    paragraph.font.size = Pt(6.8)
+                    paragraph.font.color.rgb = ppt_color(INK)
+        add_speaker_notes(slide, "TPM perspective: use this register to distinguish the existing component boundary from proposed controls. Component statuses and descriptions are read from the master Architecture worksheet; do not treat PLANNED or BLOCKED rows as delivered.")
 
 
 def build_architecture_deck() -> None:
     presentation = new_deck()
+    architecture = _architecture_by_id()
     cover_slide(presentation, "Trading Data &\nDaily P&L Platform", "Evidence-based current architecture and a controlled path from proof of concept to a supportable prototype.", "Technical architecture")
 
     slide = slide_base(presentation, "Business context and supported scope", "01 | Context", 2)
-    add_box(slide, 0.65, 1.45, 3.75, 2.08, "Business outcome", "Turn synthetic trade snapshots and daily equity closes into validated trade history, daily positions, valuation, and a transparent P&L result.", "EFF4F6", TEAL, 17, 13)
-    add_box(slide, 4.75, 1.45, 3.75, 2.08, "Verified prototype", "USD cash equities; 10 configured instruments; three UC schemas; six-task Databricks Job; audit, rejects, breaks, notebooks, and SQL.", "EAF3F1", BLUE, 17, 13)
-    add_box(slide, 8.85, 1.45, 3.75, 2.08, "Not production-ready", "Yahoo Finance approval, real trade source, production identity/environment, monitoring alerts, retention policy, and deployed dashboard are not evidenced.", "FAF0E5", ORANGE, 17, 13)
+    add_box(slide, 0.65, 1.45, 3.75, 2.08, "Business outcome", _architecture_description("ARCH-01"), "EFF4F6", TEAL, 17, 13)
+    add_box(slide, 4.75, 1.45, 3.75, 2.08, "Verified prototype", _architecture_description("ARCH-02"), "EAF3F1", BLUE, 17, 13)
+    gaps = [row for row in PLAN.get("architecture", []) if "PLANNED" in _master_text(row.get("Implementation Status")) or "BLOCKED" in _master_text(row.get("Implementation Status"))]
+    gap_summary = "\n".join(f"{row['Component']}: {row['Implementation Status']}" for row in gaps[:4])
+    add_box(slide, 8.85, 1.45, 3.75, 2.08, "Proposed / blocked", gap_summary, "FAF0E5", ORANGE, 17, 11)
     add_text(slide, 0.78, 4.03, 11.8, 0.55, "Initial calculation boundary", 17, NAVY, True)
     add_text(slide, 0.80, 4.58, 11.7, 1.25, "Simple cash equities in USD. No fees, settlement cash, FX, dividends, corporate actions, financing, borrow costs, or derivatives. A cumulative field called unrealized_pnl_proxy is explicitly not true unrealized P&L.", 16, INK)
     add_text(slide, 0.80, 6.25, 11.6, 0.42, "Decision gate: business and market-data owners must approve source, price definition, and calculation boundaries before production claims.", 12, RED, True)
 
     slide = slide_base(presentation, "Data sources and ingress contracts", "02 | Source systems", 3)
-    add_box(slide, 0.65, 1.50, 3.75, 3.65, "Trades | synthetic CSV", "scripts/generate_trades.py\n14 source columns\n1,200-row checked-in sample\nLocal CSV → UC Volume\nFull snapshot; Bronze overwrite\nVersion selected in Silver\n\nReal trade-system connector: not implemented", "EFF4F6", TEAL, 17, 13)
-    add_box(slide, 4.78, 1.50, 3.75, 3.65, "Prices | Yahoo Finance", "yfinance.download\nDaily unadjusted Close\n10 configured tickers; USD\nSeven-day default lookback\nRetry transient failures\nMissing expected session fails processing\n\nProvider rights/production approval: unconfirmed", "EAF3F1", BLUE, 17, 13)
-    add_box(slide, 8.90, 1.50, 3.75, 3.65, "Reference | in code", "10 instrument_id → symbol mappings\nBook and counterparty are input strings\nNo persisted reference tables\nNo effective-dated mapping history\n\nOwner, cardinality, and reference validation: to be confirmed", "FAF0E5", ORANGE, 17, 13)
+    add_box(slide, 0.65, 1.50, 3.75, 3.65, f"{architecture['ARCH-03']['Component']} | {architecture['ARCH-03']['Implementation Status']}", architecture["ARCH-03"]["Description"], "EFF4F6", TEAL, 14, 11)
+    add_box(slide, 4.78, 1.50, 3.75, 3.65, f"{architecture['ARCH-04']['Component']} | {architecture['ARCH-04']['Implementation Status']}", architecture["ARCH-04"]["Description"], "EAF3F1", BLUE, 14, 11)
+    add_box(slide, 8.90, 1.50, 3.75, 3.65, f"{architecture['ARCH-05']['Component']} | {architecture['ARCH-05']['Implementation Status']}", architecture["ARCH-05"]["Description"], "FAF0E5", ORANGE, 14, 11)
     add_text(slide, 0.80, 5.55, 11.7, 0.86, "Source contract gaps: production owner, delivery cutoff/completeness marker, volume/SLA, corrections/cancellations, data rights, retention, and missing-price escalation. Synthetic fixtures are for deterministic tests, not a substitute for an approved source.", 14, INK)
 
     slide = slide_base(presentation, "High-level solution architecture", "03 | Components", 4)
@@ -682,9 +1118,9 @@ def build_architecture_deck() -> None:
     add_arrow(slide, 5.48, 3.19, 6.08, 2.04)
     add_arrow(slide, 7.36, 2.40, 7.36, 2.67)
     add_arrow(slide, 8.62, 3.18, 9.24, 2.22)
-    add_box(slide, 0.82, 4.55, 3.55, 1.20, "Compute", "PySpark package: trade_pipeline wheel; six entry points", "F3F6F7", BLUE, 14, 11)
-    add_box(slide, 4.88, 4.55, 3.55, 1.20, "Governance", "Unity Catalog cibc; bronze / silver / gold; UC Volume", "F3F6F7", TEAL, 14, 11)
-    add_box(slide, 8.92, 4.55, 3.55, 1.20, "Control", "Databricks Workflows; audit; rejects; run-level breaks", "F3F6F7", ORANGE, 14, 11)
+    add_box(slide, 0.82, 4.55, 3.55, 1.20, architecture["ARCH-11"]["Component"], architecture["ARCH-11"]["Description"], "F3F6F7", BLUE, 14, 10)
+    add_box(slide, 4.88, 4.55, 3.55, 1.20, architecture["ARCH-06"]["Component"], architecture["ARCH-06"]["Description"], "F3F6F7", TEAL, 14, 10)
+    add_box(slide, 8.92, 4.55, 3.55, 1.20, architecture["ARCH-12"]["Component"], architecture["ARCH-12"]["Description"], "F3F6F7", ORANGE, 14, 10)
     add_text(slide, 0.82, 6.10, 11.5, 0.48, "Current physical data model has 10 Delta tables. No separate reporting schema, dashboard dataset, or persisted reference schema is present.", 12, MUTED)
 
     slide = slide_base(presentation, "End-to-end flow and workflow dependencies", "04 | Orchestration", 5)
@@ -730,95 +1166,405 @@ def build_architecture_deck() -> None:
     add_box(slide, 8.85, 4.12, 3.70, 1.52, "Readiness gates", "Provider + data rights\nLeast privilege + support owner\nRerun/UAT + retention/RTO/RPO", "EFF4F6", BLUE, 15, 11)
     add_text(slide, 0.80, 6.10, 11.7, 0.55, "Existing scripts/deploy.sh uses Databricks CLI and the Bundle. No production Bundle target or promotion pipeline is present; all future deployment architecture is proposed.", 12, MUTED)
 
+    slide = slide_base(presentation, "Current prototype and proposed target state", "08 | Current and target", 9)
+    current_components = [row for row in PLAN["architecture"] if "IMPLEMENTED" in _master_text(row.get("Implementation Status")) or "PARTIALLY" in _master_text(row.get("Implementation Status"))]
+    target_components = [row for row in PLAN["architecture"] if "PLANNED" in _master_text(row.get("Implementation Status")) or "BLOCKED" in _master_text(row.get("Implementation Status"))]
+    current_text = "\n\n".join(f"{row['Component']}: {row['Description']} [{row['Implementation Status']}]" for row in current_components[:6])
+    target_text = "\n\n".join(f"{row['Component']}: {row['Description']} [{row['Implementation Status']}]" for row in target_components)
+    add_box(slide, 0.65, 1.47, 5.82, 3.95, "Current | master Architecture worksheet", current_text, "EAF3F1", TEAL, 15, 9)
+    add_box(slide, 6.86, 1.47, 5.82, 3.95, "Target | master Architecture worksheet", target_text, "FAF0E5", ORANGE, 15, 9)
+    add_text(slide, 0.82, 5.85, 11.8, 0.60, "Target-state components are backlog proposals, not provisioned controls. No new schema, data provider, BI platform, or CI service is assumed by this design.", 13, RED, True)
+
+    slide = slide_base(presentation, "Data quality and reconciliation controls", "09 | Quality and reconciliation", 10)
+    add_box(slide, 0.65, 1.50, 3.72, 3.58, "Ingestion / Silver", "Exact CSV header and structural checks\nTyped conversion; business rules\nVersion and duplicate selection\nReject history with reason codes\nExpected price-session completeness gate", "EFF4F6", TEAL, 16, 12)
+    add_box(slide, 4.78, 1.50, 3.72, 3.58, "Gold controls", "Position key: date/book/counterparty/instrument/currency\n\nP&L key: date/book/symbol/currency\n\nNULL for missing required marks/baselines; create valuation breaks", "EAF3F1", BLUE, 16, 12)
+    add_box(slide, 8.90, 1.50, 3.72, 3.58, "Evidence and gaps", "Unit and fixture tests in repository\n2026-10-11 run: 5,990 positions and 835 P&L rows; zero reported independent SQL mismatches\n\nSame-input second run: NOT VERIFIED\n3 focused local tests fail on stale DDL paths", "FAF0E5", ORANGE, 15, 11)
+    add_text(slide, 0.82, 5.50, 11.6, 0.78, "Release gate: rerun in a supported Spark/Delta environment, reconcile by business grain, close or disposition test failures, obtain Product Control acceptance, then record evidence.", 13, NAVY, True)
+
+    slide = slide_base(presentation, "Security, deployment and operations readiness", "10 | Security and operations", 11)
+    add_box(slide, 0.65, 1.47, 3.72, 3.80, "Verified controls", "Unity Catalog catalog/schemas and Volume\n\nGrant template with principal placeholder\n\nCLI authentication kept outside source\n\nTask audit, error details, rejects, breaks\n\nAsset Bundle builds/deploys dev wheel", "EAF3F1", TEAL, 16, 12)
+    add_box(slide, 4.78, 1.47, 3.72, 3.80, "Not verified / missing", "No production service principal or non-dev target evidenced\n\nNo CI workflow in repository\n\nNo automated failure notification\n\nRetention, RTO/RPO, support SLA not approved\n\nSchedule PAUSED; no go-live approval", "FAF0E5", ORANGE, 16, 12)
+    add_box(slide, 8.90, 1.47, 3.72, 3.80, "Readiness decision", "Confirm data classification and access\n\nReview least privilege and secrets\n\nTest alerts, rerun, recovery and rollback\n\nApprove owner, retention and support process\n\nExplicit no-go if any critical control is open", "EFF4F6", BLUE, 16, 12)
+    add_text(slide, 0.82, 5.68, 11.6, 0.58, "GitHub/CI is a proposed delivery control in this plan; the checked-in repository currently shows the Databricks Asset Bundle and deploy script, not a CI workflow.", 12, MUTED)
+
+    add_architecture_register_slides(presentation)
     presentation.save(OUT / "Trading_Platform_Architecture.pptx")
 
 
 def build_delivery_deck() -> None:
     presentation = new_deck()
-    cover_slide(presentation, "Delivery plan &\nproject controls", "A compact, evidence-based SDLC plan for closing prototype gaps without presenting planned work as delivered.", "Executive delivery overview")
+    slide = slide_base(presentation, "Project overview | problem, objectives and scope", "01 | Delivery baseline", 1)
+    add_box(slide, 0.65, 1.46, 3.72, 2.26, "Business problem", "Trade snapshots and daily equity prices need controlled validation, position aggregation, valuation, P&L and exception visibility.", "EFF4F6", TEAL, 16, 12)
+    add_box(slide, 4.80, 1.46, 3.72, 2.26, "Objective", PLAN["purpose"], "EAF3F1", BLUE, 16, 12)
+    add_box(slide, 8.95, 1.46, 3.72, 2.26, "Technology and scope", "Databricks; PySpark / SQL; Delta Lake; Unity Catalog; Workflows; Asset Bundle; synthetic trades; prototype prices.", "FAF0E5", ORANGE, 16, 12)
+    add_text(slide, 0.82, 4.15, 11.7, 0.80, "Current implementation is a technical proof of concept. The brief says Azure Databricks, while workspace evidence indicates AWS; target cloud needs confirmation. No production banking deployment or approval is claimed.", 14, RED, True)
+    add_text(slide, 0.82, 5.25, 11.6, 0.65, "Boundaries: USD equities, ten configured symbols, simplified daily P&L; FX, derivatives, fees, dividends and corporate actions are excluded.", 13, MUTED)
 
-    slide = slide_base(presentation, "Project overview | evidence before roadmap", "01 | Delivery baseline", 2)
-    add_box(slide, 0.65, 1.50, 3.72, 2.18, "Problem", "Reconcile synthetic equity trades and daily prices into positions, valuation, P&L, and visible operational exceptions.", "EFF4F6", TEAL, 17, 13)
-    add_box(slide, 4.78, 1.50, 3.72, 2.18, "Already implemented", "Six-task Databricks Workflow; 10 Delta tables; trade/price validation; positions; simplified daily P&L; audit/rejects; notebooks/SQL.", "EAF3F1", BLUE, 17, 13)
-    add_box(slide, 8.90, 1.50, 3.72, 2.18, "Next delivery", "Approved source contracts, trade snapshot semantics, CI/deploy controls, complete rerun evidence, dashboard MVP, and runbook/alerts.", "FAF0E5", ORANGE, 17, 13)
-    add_text(slide, 0.82, 4.14, 11.6, 0.48, "Dated verification: 2026-10-11 run completed all six tasks; 5,990 position rows and 835 P&L rows reconciled with zero reported calculation mismatches.", 15, NAVY, True)
-    add_text(slide, 0.82, 4.90, 11.7, 0.94, "Caveat: the same-parameter second run was queued and has no recorded result. The configured schedule is paused and this is a proof of concept, not a production service.", 14, RED)
-
-    slide = slide_base(presentation, "SDLC approach | decisions flow into evidence", "02 | Requirements and traceability", 3)
-    stages = [(0.62, "Discover", "Stakeholders\nSource contracts\nScope and RAID"), (3.18, "Specify", "BR / FR / NFR\nData dictionary\nCalculation policy"), (5.74, "Design", "Architecture\nDAG / table grains\nSecurity boundary"), (8.30, "Build & verify", "Stories / subtasks\nTests / reconciliation\nPR + Bundle"), (10.86, "Release", "UAT / readiness\nRunbook / monitor\nControlled schedule")]
-    for x, title, body in stages:
-        add_box(slide, x, 1.75, 1.85, 2.10, title, body, "EFF4F6" if x != 8.30 else "EAF3F1", TEAL if x < 5 else BLUE, 14, 11)
-    for start in [2.50, 5.06, 7.62, 10.18]:
-        add_arrow(slide, start, 2.80, start + 0.58, 2.80)
-    add_text(slide, 0.78, 4.55, 11.8, 0.90, "Traceability is maintained from BR-001..008 → FR-001..013 → TMP story IDs → TC test cases → acceptance evidence. Decisions and gaps stay explicit in the workbook RAID and decision log.", 14, INK)
-    add_text(slide, 0.78, 5.68, 11.8, 0.50, "Definition of Ready: owner, input contract, dependencies, AC, estimate, and test evidence agreed. Definition of Done: reviewed code/config, tests passed (skips disclosed), reconciled data, deploy evidence, docs, and operational owner.", 11, MUTED)
-
-    slide = slide_base(presentation, "Jira structure | implementation status is separate", "03 | Backlog", 4)
-    add_box(slide, 0.78, 1.48, 3.10, 1.08, "13 epics", "SDLC stages and engineering capabilities", "EFF4F6", TEAL, 16, 11)
-    add_box(slide, 5.12, 1.48, 3.10, 1.08, "24 stories", "Requirements, design, build, test, operations", "EAF3F1", BLUE, 16, 11)
-    add_box(slide, 9.46, 1.48, 3.10, 1.08, "48 subtasks", "Specific engineering outputs under stories", "FAF0E5", ORANGE, 16, 11)
-    add_arrow(slide, 3.95, 2.00, 5.03, 2.00)
-    add_arrow(slide, 8.29, 2.00, 9.37, 2.00)
-    add_text(slide, 0.84, 3.02, 11.3, 0.40, "Planning IDs are temporary and consistent across workbook, decks, and Jira CSV.", 14, NAVY, True)
-    status_cards = [("IMPLEMENTED", "Done in current repo/runtime evidence", PALE_TEAL, TEAL), ("PARTIAL", "Code exists; evidence/control gap remains", PALE_ORANGE, ORANGE), ("PLANNED", "Backlog only; not delivered", PALE_RED, RED)]
-    for index, (title, body, fill, accent) in enumerate(status_cards):
-        add_box(slide, 0.82 + index * 4.18, 3.68, 3.74, 1.45, title, body, fill, accent, 15, 11)
-    add_text(slide, 0.84, 5.65, 11.5, 0.70, "CSV import mapping: Planning Key should map to a custom field; Issue Type, Summary, Description, Priority, Story Points, and Status to Jira fields; Epic Name/Epic Link/Parent ID to hierarchy fields. Import epics first and resolve temporary Epic Link values to generated Jira keys if required by the Jira edition.", 11, INK)
-
-    slide = slide_base(presentation, "Dependency-driven execution sequence", "04 | Critical path", 5)
-    flow = [(0.40, 1.55, "Source + scope\nTMP-001/002/006/007"), (3.02, 1.55, "Data / security\nTMP-003/005/008"), (5.65, 1.55, "Controls + history\nTMP-010/012/016"), (8.30, 1.55, "Reporting + UAT\nTMP-020/022"), (10.95, 1.55, "Handover\nTMP-024")]
-    for x, y, label in flow:
-        add_box(slide, x, y, 2.02, 1.02, label, "", "EFF4F6", TEAL, 12, 10)
-    for x in [2.46, 5.09, 7.74, 10.39]:
-        add_arrow(slide, x, 2.06, x + 0.50, 2.06)
-    add_box(slide, 1.00, 3.28, 4.95, 1.32, "Parallel workstream A | trades", "Trade contract → Bronze snapshot → Silver versioning → position/P&L correction reconciliation", "EAF3F1", BLUE, 14, 11)
-    add_box(slide, 7.28, 3.28, 4.95, 1.32, "Parallel workstream B | prices", "Provider decision → Bronze prices → Silver completeness → position valuation / P&L baseline", "EFF4F6", TEAL, 14, 11)
-    add_text(slide, 0.95, 5.12, 11.5, 0.84, "Critical path: business/source decisions → supported integration and rerun evidence → safe deployment controls → dashboard/UAT → handover. Dashboard build can start only after reporting grain, access, and price/trade contracts are agreed.", 13, NAVY, True)
-
-    slide = slide_base(presentation, "Proposed two-week sprint plan", "05 | Eight-week baseline", 6)
-    for index, sprint in enumerate(PLAN["sprints"]):
-        x = 0.66 + (index % 2) * 6.25
-        y = 1.45 + (index // 2) * 2.45
-        story_text = ", ".join(sprint["stories"])
-        add_box(slide, x, y, 5.78, 1.78, f"{sprint['name']} | {sprint['weeks']}", f"{sprint['goal']}\n\n{story_text} | 10 SP", "EFF4F6" if index % 2 == 0 else "EAF3F1", TEAL if index % 2 == 0 else BLUE, 15, 11)
-    add_text(slide, 0.82, 6.43, 11.6, 0.36, "40 SP / 8 weeks = assumed 10 SP per sprint. No reserve; relative weeks, not approved delivery dates. Use one contingency sprint if source/access decisions slip.", 11, RED, True)
-
-    slide = slide_base(presentation, "Principal project risks and controls", "06 | RAID", 7)
-    risks = [
-        ("Provider approval", "High / High", "Yahoo Finance is current prototype only; data rights and SLA unconfirmed.", "Select approved source; keep production blocked until sign-off."),
-        ("Snapshot semantics", "Medium / High", "Trade IDs absent from a newer file are not deleted from Silver.", "Agree cancellation/deletion rule; test two-snapshot reconciliation."),
-        ("Capacity and decisions", "Medium / High", "40 SP baseline has no reserve; part-time owners and runtime access gate work.", "Book owners at kickoff; defer polish or add one sprint."),
-        ("Operational readiness", "High / High", "Dev only, paused schedule, no automated alerts or production identity.", "Readiness gate; least privilege, alert test, runbook and sign-off."),
+    slide = slide_base(presentation, "Business value and measurable success criteria", "02 | Business value", 3)
+    criteria = [
+        ("Trade completeness", "Exact 14-column input contract; invalid file cannot replace the prior Bronze snapshot."),
+        ("Position accuracy", "Daily signed quantities reconcile by date, book, counterparty and instrument."),
+        ("P&L integrity", "Daily P&L reconciles using approved inputs; missing required marks remain NULL with breaks."),
+        ("Operational control", "Every task attempt is auditable; identical-input rerun preserves business outputs (proposed acceptance; rerun not verified)."),
     ]
-    for index, (title, rating, description, response) in enumerate(risks):
-        y = 1.42 + index * 1.22
-        add_box(slide, 0.68, y, 2.52, 0.91, title, rating, "FAF0E5", ORANGE, 13, 10)
-        add_text(slide, 3.48, y + 0.02, 4.15, 0.84, description, 12, INK)
-        add_text(slide, 7.83, y + 0.02, 4.72, 0.84, response, 12, NAVY, True)
+    for index, (title, body) in enumerate(criteria):
+        x = 0.68 + (index % 2) * 6.25
+        y = 1.48 + (index // 2) * 1.83
+        add_box(slide, x, y, 5.75, 1.42, title, body, "EFF4F6" if index % 2 == 0 else "EAF3F1", TEAL if index % 2 == 0 else BLUE, 16, 12)
+    add_text(slide, 0.82, 5.55, 11.5, 0.70, "Verified evidence: 2026-10-11 Databricks run had six successful tasks; 5,990 positions and 835 P&L rows had zero reported independent SQL mismatches. This is one run, not a service-level commitment.", 12, INK)
 
-    slide = slide_base(presentation, "Delivery gates and immediate next steps", "07 | Decisions", 8)
-    add_box(slide, 0.70, 1.52, 3.74, 2.05, "1 | Confirm owners", "Trade source and correction semantics\nMarket-data rights / provider\nProduct/reporting audience\nPlatform identity and test runtime", "EFF4F6", TEAL, 16, 12)
-    add_box(slide, 4.80, 1.52, 3.74, 2.05, "2 | Close evidence gaps", "Run same-input Databricks job twice\nExecute Spark/Delta integration tests\nCapture duration and failure recovery\nApprove NFR / retention / recovery targets", "EAF3F1", BLUE, 16, 12)
-    add_box(slide, 8.90, 1.52, 3.74, 2.05, "3 | Gate release", "Complete dashboard UAT\nReview access and alerts\nHandover runbook and ownership\nKeep schedule paused until readiness sign-off", "FAF0E5", ORANGE, 16, 12)
-    add_text(slide, 0.82, 4.30, 11.6, 0.52, "Milestones: W2 scope/requirements | W4 source/model | W6 controls/history | W8 UAT/handover.", 15, NAVY, True)
-    add_text(slide, 0.82, 5.05, 11.6, 1.10, "Interview framing: a real prototype already demonstrates the Medallion flow and financial calculation checks. The plan is about controlled completion: approved sources, explicit business semantics, reproducible tests/deployments, user acceptance, and operations. Do not claim production delivery, a dashboard, or a successful rerun that is not evidenced.", 14, INK)
+    slide = slide_base(presentation, "Stakeholder landscape and decision ownership", "03 | Stakeholders", 4)
+    add_box(slide, 0.65, 1.48, 3.72, 3.88, "Business and control", "Sponsor: scope/capacity/go-no-go\n\nBA / Product Owner: requirements and acceptance\n\nProduct Control: calculation and reconciliation approval\n\nTrading Operations: trade source and operating semantics", "EFF4F6", TEAL, 16, 12)
+    add_box(slide, 4.80, 1.48, 3.72, 3.88, "Technology delivery", "TPM: integrated plan, RAID, dependencies, governance\n\nSolution Architect: architecture and decisions\n\nData Engineering: implementation and technical evidence\n\nQA: test evidence and defect visibility", "EAF3F1", BLUE, 16, 12)
+    add_box(slide, 8.95, 1.48, 3.72, 3.88, "Control / operations", "Information Security: access and policy review\n\nProduction Support: monitoring, recovery and handover\n\nMarket Data Owner: provider rights and service contract\n\nNamed participants and approvals: NOT VERIFIED", "FAF0E5", ORANGE, 16, 12)
+    add_text(slide, 0.82, 5.72, 11.7, 0.50, "RACI is proposed for planning; role ownership must be confirmed at mobilisation.", 13, MUTED)
+
+    slide = slide_base(presentation, "Solution architecture | preserve the working core", "04 | Architecture", 5)
+    add_box(slide, 0.55, 1.58, 2.18, 1.26, "Inputs", "Synthetic trade CSV\nYahoo Finance prototype", "EFF4F6", TEAL, 15, 11)
+    add_box(slide, 3.18, 1.36, 2.34, 1.03, "Bronze", "Raw Delta + lineage", "EAF3F1", TEAL, 15, 11)
+    add_box(slide, 3.18, 2.78, 2.34, 1.03, "Silver", "Typed data + rejects", "EAF3F1", BLUE, 15, 11)
+    add_box(slide, 6.06, 1.36, 2.70, 1.03, "Gold positions", "Daily inventory + value", "FAF0E5", ORANGE, 15, 11)
+    add_box(slide, 6.06, 2.78, 2.70, 1.03, "Gold P&L", "Daily result + breaks + audit", "FAF0E5", ORANGE, 15, 11)
+    add_box(slide, 9.34, 1.58, 3.18, 1.26, "Consumers", "Report notebook + SQL\nDashboard: PLANNED", "EFF4F6", BLUE, 15, 11)
+    add_arrow(slide, 2.77, 2.20, 3.13, 1.90)
+    add_arrow(slide, 4.36, 2.42, 4.36, 2.73)
+    add_arrow(slide, 5.59, 3.30, 6.00, 1.88)
+    add_arrow(slide, 7.40, 2.42, 7.40, 2.73)
+    add_arrow(slide, 8.83, 3.29, 9.29, 2.18)
+    add_text(slide, 0.78, 4.62, 11.8, 1.0, "Orchestration: two independent source branches → Silver join at build_positions → calculate_daily_pnl. Databricks Workflow, Unity Catalog cibc and Asset Bundle dev target are implemented; production targets and security controls remain gated.", 14, INK)
+
+    slide = slide_base(presentation, "Requirements traceability | from outcome to evidence", "04 | Requirements", 6)
+    business_req = next(item for item in PLAN["business_requirements"] if item["id"] == "BR-005")
+    functional_req = next(item for item in PLAN["functional_requirements"] if item["id"] == "FR-008")
+    example_story_id = functional_req["stories"][0]
+    example_story = next(item for item in PLAN["stories"] if item["id"] == example_story_id)
+    example_test = next((item for item in TESTS if example_story_id in _master_refs(item["story"])), None)
+    test_id = example_test["id"] if example_test else "Test not mapped"
+    chain = [(0.58, business_req["id"], business_req["description"]), (3.15, functional_req["id"], functional_req["description"]), (6.08, example_story_id, example_story["title"]), (9.02, test_id, example_test["scope"] if example_test else "No test mapped")]
+    for x, title, body in chain:
+        add_box(slide, x, 1.65, 2.38, 1.45, title, body, "EFF4F6", TEAL, 15, 11)
+    for x in [2.98, 5.91, 8.84]:
+        add_arrow(slide, x, 2.37, x + 0.15, 2.37)
+    add_box(slide, 1.12, 3.82, 5.00, 1.30, "Acceptance", functional_req["acceptance"], "EAF3F1", BLUE, 15, 10)
+    evidence_text = example_test["evidence"] if example_test else "No linked test evidence is recorded in the master workbook."
+    add_box(slide, 7.17, 3.82, 5.00, 1.30, "Evidence", evidence_text, "FAF0E5", ORANGE, 15, 10)
+    add_text(slide, 0.85, 5.65, 11.4, 0.54, "The workbook traceability matrix covers all BR → FR → story → test/evidence mappings; IDs are shared with the CSV.", 13, NAVY, True)
+
+    slide = slide_base(presentation, "Delivery strategy | capability-based backlog", "05 | Delivery strategy", 7)
+    total_points = sum(story["points"] for story in PLAN["stories"])
+    add_box(slide, 0.66, 1.48, 3.70, 1.25, f"{len(PLAN['epics'])} epics", "Outcome-oriented capabilities", "EFF4F6", TEAL, 16, 11)
+    add_box(slide, 4.80, 1.48, 3.70, 1.25, f"{len(PLAN['stories'])} stories", f"{total_points} estimated points across current + proposed work", "EAF3F1", BLUE, 16, 11)
+    add_box(slide, 8.93, 1.48, 3.70, 1.25, f"{len(list_subtasks())} subtasks", "Specific evidence under each story", "FAF0E5", ORANGE, 16, 11)
+    add_text(slide, 0.82, 3.12, 11.6, 0.62, "Delivery approach: clarify scope and acceptance → design/data contracts → build in parallel workstreams → verify with tests and reconciliation → release only after readiness gate.", 15, NAVY, True)
+    add_text(slide, 0.82, 4.05, 11.5, 0.80, "8-week baseline: 38 SP planned against 40 assumed capacity (10 SP/sprint); 2 SP aggregate headroom, not a guaranteed reserve. Optional Sprint 5: 10 SP for data approval, price exception operations and dashboard.", 14, INK)
+    add_text(slide, 0.82, 5.15, 11.5, 0.78, "Current implementation stories retain evidence status. Their point values are reference estimates, not remaining-work effort or actual velocity.", 12, MUTED)
+
+    slide = slide_base(presentation, "Integrated delivery roadmap | relative weeks", "06 | Roadmap", 8)
+    story_by_id = {story["id"]: story for story in PLAN["stories"]}
+    milestone_by_sprint = {"Sprint 1": "M-01", "Sprint 2": "M-02", "Sprint 3": "M-03", "Sprint 4": "M-04", "Sprint 5": "M-05"}
+    for index, sprint in enumerate(PLAN["sprints"]):
+        y = 1.34 + index * 1.02
+        points = sum(story_by_id[story_id]["points"] for story_id in sprint["stories"])
+        title = f"{sprint['weeks']} | {points} SP"
+        if not sprint["baseline"]:
+            title += " | optional"
+        add_box(slide, 0.68, y, 2.65, 0.78, title, milestone_by_sprint[sprint["name"].split(" ")[0] + " " + sprint["name"].split(" ")[1]] if "(" in sprint["name"] else milestone_by_sprint[sprint["name"]], "EFF4F6" if sprint["baseline"] else "FAF0E5", TEAL if sprint["baseline"] else ORANGE, 12, 9)
+        add_text(slide, 3.62, y + 0.05, 3.30, 0.67, csv_text(sprint["stories"]), 10, NAVY, True)
+        add_text(slide, 7.05, y + 0.05, 5.05, 0.67, sprint["goal"], 11, INK)
+    add_text(slide, 0.82, 6.55, 11.6, 0.30, "Baseline: 38/40 SP; 2 SP headroom. Optional Sprint 5 is follow-on, not contingency capacity committed to this baseline. Relative weeks only.", 10, MUTED)
+
+    slide = slide_base(presentation, "Dependency drivers and delivery constraints", "07 | Dependency drivers", 9)
+    add_box(slide, 0.70, 1.50, 5.70, 1.30, "Trade workstream", "Source contract → Bronze snapshot → Silver version/correction rules → positions → P&L reconciliation", "EAF3F1", BLUE, 15, 11)
+    add_box(slide, 6.92, 1.50, 5.70, 1.30, "Price workstream", "Provider decision → Bronze prices → Silver completeness → position valuation / P&L baseline", "EFF4F6", TEAL, 15, 11)
+    add_arrow(slide, 6.44, 2.15, 6.84, 2.15)
+    add_box(slide, 2.30, 3.38, 8.55, 1.22, "Join and release dependencies", "Both Silver outputs → positions → P&L → supported-runtime tests / reconciliation → UAT → handover", "FAF0E5", ORANGE, 15, 11)
+    add_text(slide, 0.86, 5.12, 11.4, 1.10, PLAN["critical_path_note"] + "\n\nExternal constraints: market-data rights, source-owner decisions, Spark/Delta test access, Security review, Product Control sign-off, and support availability.", 12, RED, True)
+
+    slide = slide_base(presentation, "Risk and governance | proportionate control", "08 | Risk and governance", 10)
+    risk_items = PLAN["risks"][:4]
+    for index, risk in enumerate(risk_items):
+        y = 1.34 + index * 0.82
+        add_text(slide, 0.72, y, 3.10, 0.28, f"{risk['id']} | {risk['probability']} / {risk['impact']}", 11, ORANGE, True)
+        add_text(slide, 3.85, y, 8.70, 0.42, risk["description"], 11, INK)
+    add_box(slide, 0.75, 4.80, 5.75, 1.18, "Cadence", "Daily engineering stand-up; weekly workstream + RAID; design/security reviews at gates; biweekly steering; milestone and release-readiness approvals.", "EFF4F6", TEAL, 14, 10)
+    add_box(slide, 6.78, 4.80, 5.75, 1.18, "Escalation", "Trigger/owner/date in RAID; unresolved delivery blocker → TPM; business/scope trade-off → Sponsor; policy/security/data rights → accountable control owner.", "EAF3F1", BLUE, 14, 10)
+
+    slide = slide_base(presentation, "Testing and release readiness", "09 | Test and release", 11)
+    add_box(slide, 0.65, 1.46, 3.72, 3.78, "Test evidence", "Unit and schema tests\n\nData-quality/reject tests\n\nPosition and P&L reconciliation\n\nSame-input idempotency + failure recovery\n\nUAT and deployment smoke test", "EFF4F6", TEAL, 16, 12)
+    add_box(slide, 4.80, 1.46, 3.72, 3.78, "Known status", "2026-10-11: six tasks succeeded; 5,990 positions and 835 P&L rows had zero reported mismatches\n\n3 focused tests fail on removed DDL file references\n\nSame-input second Job run: NOT VERIFIED", "FAF0E5", ORANGE, 15, 11)
+    add_box(slide, 8.95, 1.46, 3.72, 3.78, "No-go until", "Supported Spark/Delta tests pass or disposition is approved\n\nProduct Control accepts results\n\nLeast privilege, alerts, recovery and support proven\n\nSource rights/retention/release owner approved", "EAF3F1", BLUE, 15, 11)
+    add_text(slide, 0.82, 5.67, 11.7, 0.52, "No CI workflow, production Bundle target, automated alerting, or schedule activation is evidenced in this repository.", 12, RED, True)
+
+    slide = slide_base(presentation, "Project status | what is and is not demonstrated", "10 | Status", 12)
+    implemented_stories = [story for story in PLAN["stories"] if story["status"] == "IMPLEMENTED"]
+    partial_stories = [story for story in PLAN["stories"] if story["status"] == "PARTIALLY IMPLEMENTED"]
+    planned_stories = [story for story in PLAN["stories"] if story["status"] in {"PLANNED", "BLOCKED", "NOT VERIFIED"}]
+    implemented_summary = "; ".join(f"{story['id']} {story['title']}" for story in implemented_stories[:4])
+    partial_summary = "; ".join(f"{story['id']} {story['status']}" for story in partial_stories[:5])
+    planned_summary = "; ".join(f"{story['id']} {story['status']}" for story in planned_stories[:5])
+    add_box(slide, 0.65, 1.48, 3.72, 2.00, "IMPLEMENTED STORIES", implemented_summary or "No stories marked implemented in the master.", "EAF3F1", TEAL, 14, 10)
+    add_box(slide, 4.80, 1.48, 3.72, 2.00, "PARTIALLY IMPLEMENTED", partial_summary or "No stories marked partial in the master.", "FAF0E5", ORANGE, 14, 10)
+    add_box(slide, 8.95, 1.48, 3.72, 2.00, "PLANNED / BLOCKED / NOT VERIFIED", planned_summary or "No open stories in the master.", "F8E8E6", RED, 13, 9)
+    add_text(slide, 0.82, 4.16, 11.6, 0.84, "Overall status: AMBER for a demonstrated proof of concept; NOT VERIFIED for the proposed schedule, named resources, and enterprise readiness. Quality has known focused test failures.", 14, NAVY, True)
+    add_text(slide, 0.82, 5.26, 11.6, 0.62, "Evidence baseline: repository and docs/test_results.md dated 2026-10-11; this plan is dated 2026-10-14.", 12, MUTED)
+    status_examples = "; ".join(f"{story['id']}: {story['status']}" for story in PLAN["stories"] if story["id"] in {"TMP-018", "TMP-016", "TMP-022"})
+    add_text(slide, 0.82, 6.02, 11.6, 0.42, f"Master backlog status example: {status_examples}", 10, MUTED, True)
+
+    slide = slide_base(presentation, "Outcomes and next steps", "11 | Next steps", 13)
+    add_box(slide, 0.65, 1.48, 3.72, 2.34, "Demonstrated", "End-to-end Medallion path, auditable tasks, reject handling, position/P&L calculations, and independent SQL reconciliation for one documented run.", "EAF3F1", TEAL, 16, 12)
+    add_box(slide, 4.80, 1.48, 3.72, 2.34, "Leadership lessons", "Make source ownership explicit; protect financial acceptance; plan dependencies before sprint commitments; surface test gaps early; separate prototype evidence from production claims.", "EFF4F6", BLUE, 16, 12)
+    add_box(slide, 8.95, 1.48, 3.72, 2.34, "Immediate decisions", "Name decision owners; approve trade/price contracts; provision test runtime; close stale tests; confirm methodology; retain optional scope until capacity and audience are approved.", "FAF0E5", ORANGE, 16, 12)
+    add_text(slide, 0.82, 4.42, 11.6, 0.84, "Production-readiness roadmap: source and rights → access/security → CI and repeatable deployment → test/reconciliation and UAT → monitoring/recovery and support → explicit release approval.", 14, NAVY, True)
+    add_text(slide, 0.82, 5.55, 11.6, 0.66, "Keep the scheduled Job paused unless a separate readiness review approves activation.", 13, RED, True)
+
+    add_integrated_gantt_slides(presentation)
 
     presentation.save(OUT / "Trading_Platform_Delivery_Overview.pptx")
 
 
+def add_integrated_gantt_slides(presentation: Presentation) -> None:
+    activities = get_gantt_activities()
+    activity_by_id = {activity["id"]: activity for activity in activities}
+    dependency_edges = gantt_dependency_edges()
+
+    slide = slide_base(
+        presentation,
+        "Integrated Project Delivery Plan — Timeline & Dependencies",
+        "12 | Integrated Gantt",
+        14,
+    )
+    add_text(slide, 0.58, 1.20, 7.3, 0.24, "KEY DELIVERY DEPENDENCIES — ILLUSTRATIVE BASELINE", 9.5, ORANGE, True)
+    add_text(slide, 8.00, 1.20, 4.75, 0.24, "Relative weeks; no kickoff date supplied", 8.5, MUTED, False, align=PP_ALIGN.RIGHT)
+
+    id_x, task_x, duration_x, predecessor_x, points_x, status_x = 0.43, 0.96, 2.46, 2.94, 4.06, 4.48
+    timeline_x, timeline_width = 5.62, 7.08
+    week_width = timeline_width / 8
+    header_y, rows_y, row_height = 1.48, 1.82, 0.365
+    headings = [
+        (id_x, 0.48, "ID"), (task_x, 1.43, "WORKSTREAM / TASK"),
+        (duration_x, 0.43, "WINDOW"), (predecessor_x, 1.08, "PREDECESSORS"),
+        (points_x, 0.34, "SP"), (status_x, 1.02, "EVIDENCE"),
+    ]
+    for x, width, label in headings:
+        add_text(slide, x, header_y, width, 0.24, label, 7.5, MUTED, True)
+    for week in range(1, 9):
+        x = timeline_x + (week - 1) * week_width
+        add_text(slide, x, header_y, week_width, 0.24, f"WEEK {week}", 8, NAVY, True, align=PP_ALIGN.CENTER)
+        grid = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT,
+            Inches(x), Inches(rows_y - 0.04), Inches(x), Inches(rows_y + row_height * len(activities)),
+        )
+        grid.line.color.rgb = ppt_color(GRID)
+        grid.line.width = Pt(0.55)
+    right_grid = slide.shapes.add_connector(
+        MSO_CONNECTOR.STRAIGHT,
+        Inches(timeline_x + timeline_width), Inches(rows_y - 0.04),
+        Inches(timeline_x + timeline_width), Inches(rows_y + row_height * len(activities)),
+    )
+    right_grid.line.color.rgb = ppt_color(GRID)
+    right_grid.line.width = Pt(0.55)
+
+    row_centers: dict[str, float] = {}
+    for row_index, activity in enumerate(activities):
+        y = rows_y + row_index * row_height
+        center_y = y + row_height / 2
+        row_centers[activity["id"]] = center_y
+        if row_index % 2 == 1:
+            band = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.40), Inches(y), Inches(12.34), Inches(row_height))
+            band.fill.solid()
+            band.fill.fore_color.rgb = ppt_color("F7F9FA")
+            band.line.fill.background()
+            band.z_order = 1
+        add_text(slide, id_x, y + 0.04, 0.48, 0.23, activity["id"], 7.5, NAVY, True)
+        add_text(slide, task_x, y + 0.025, 1.43, 0.29, activity["name"], 7.6, INK, True)
+        add_text(slide, duration_x, y + 0.04, 0.43, 0.23, "2w*", 7.5, MUTED, False, align=PP_ALIGN.CENTER)
+        predecessor_labels = activity["predecessor_activities"] + activity["external_predecessors"]
+        predecessor_text = "/".join(item.replace("WS-", "W") for item in predecessor_labels) if predecessor_labels else "-"
+        add_text(slide, predecessor_x, y + 0.04, 1.08, 0.23, predecessor_text, 7.1, MUTED, False)
+        add_text(slide, points_x, y + 0.04, 0.34, 0.23, str(activity["story_points"]), 7.5, NAVY, True, align=PP_ALIGN.CENTER)
+        short_status = {
+            "IMPLEMENTED": "DONE",
+            "PARTIALLY IMPLEMENTED": "PARTIAL",
+            "PLANNED": "PLANNED",
+            "BLOCKED": "BLOCKED",
+            "NOT VERIFIED": "NOT VERIFIED",
+        }.get(activity["evidence_status"], "MIXED")
+        status_color = {
+            "IMPLEMENTED": NAVY,
+            "PARTIALLY IMPLEMENTED": BLUE,
+            "PLANNED": MUTED,
+            "BLOCKED": RED,
+            "NOT VERIFIED": ORANGE,
+        }.get(activity["evidence_status"], ORANGE)
+        add_text(slide, status_x, y + 0.04, 1.02, 0.23, short_status, 7.3, status_color, True)
+
+        bar_x = timeline_x + (activity["start_week"] - 1) * week_width + 0.025
+        bar_width = activity["duration_weeks"] * week_width - 0.05
+        bar = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(bar_x), Inches(y + 0.09), Inches(bar_width), Inches(0.19))
+        bar.fill.solid()
+        bar.fill.fore_color.rgb = ppt_color("D8DEE3")
+        bar.line.color.rgb = ppt_color("AAB6BE")
+        bar.line.width = Pt(0.45)
+        bar.adjustments[0] = 0.08
+        add_text(slide, bar_x, y + 0.075, bar_width, 0.20, f"{activity['story_points']} SP", 7.5, NAVY, True, align=PP_ALIGN.CENTER)
+
+        separator = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT,
+            Inches(0.40), Inches(y + row_height), Inches(12.74), Inches(y + row_height),
+        )
+        separator.line.color.rgb = ppt_color("E6EBEE")
+        separator.line.width = Pt(0.4)
+
+    # Only draw time-scaled FS connectors when one sprint window finishes before
+    # the successor window begins. Same-sprint ordering is documented on slide 15.
+    for edge in dependency_edges:
+        predecessor = activity_by_id[edge["predecessor"]]
+        successor = activity_by_id[edge["successor"]]
+        if not edge["forward_in_sprint_windows"] or successor["start_week"] != predecessor["finish_week"] + 1:
+            continue
+        x = timeline_x + predecessor["finish_week"] * week_width
+        connector = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT,
+            Inches(x), Inches(row_centers[predecessor["id"]]),
+            Inches(x), Inches(row_centers[successor["id"]]),
+        )
+        connector.line.color.rgb = ppt_color(BLUE)
+        connector.line.width = Pt(1.1)
+        connector.line.end_arrowhead = True
+
+    milestone_y = rows_y + row_height * len(activities) + 0.12
+    for milestone in PLAN["milestones"]:
+        week_match = re.search(r"Week\s+(\d+)", milestone["week"])
+        if not week_match or "optional" in milestone["week"].lower():
+            continue
+        week = int(week_match.group(1))
+        if week > 8:
+            continue
+        x = timeline_x + week * week_width
+        diamond = slide.shapes.add_shape(MSO_SHAPE.DIAMOND, Inches(x - 0.075), Inches(milestone_y), Inches(0.15), Inches(0.15))
+        diamond.fill.solid()
+        diamond.fill.fore_color.rgb = ppt_color(ORANGE)
+        diamond.line.color.rgb = ppt_color(ORANGE)
+        add_text(slide, x - 0.28, milestone_y + 0.14, 0.56, 0.18, milestone["id"], 7, NAVY, True, align=PP_ALIGN.CENTER)
+
+    legend_y = 6.38
+    legend_items = [
+        (0.52, NAVY, "Implemented evidence (current, undated)", 2.10),
+        (2.90, BLUE, "Partially implemented evidence", 2.10),
+        (5.30, "D8DEE3", "Planned sprint window", 1.95),
+    ]
+    for x, color, label, label_width in legend_items:
+        swatch = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(legend_y + 0.02), Inches(0.16), Inches(0.13))
+        swatch.fill.solid()
+        swatch.fill.fore_color.rgb = ppt_color(color)
+        swatch.line.color.rgb = ppt_color(color)
+        add_text(slide, x + 0.22, legend_y, label_width, 0.22, label, 7.3, INK)
+    diamond_legend = slide.shapes.add_shape(MSO_SHAPE.DIAMOND, Inches(7.55), Inches(legend_y + 0.01), Inches(0.15), Inches(0.15))
+    diamond_legend.fill.solid()
+    diamond_legend.fill.fore_color.rgb = ppt_color(ORANGE)
+    diamond_legend.line.color.rgb = ppt_color(ORANGE)
+    add_text(slide, 7.77, legend_y, 1.0, 0.22, "Milestone", 7.3, INK)
+    critical_legend = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(8.93), Inches(legend_y + 0.01), Inches(0.30), Inches(0.15))
+    critical_legend.fill.solid()
+    critical_legend.fill.fore_color.rgb = ppt_color(WHITE)
+    critical_legend.line.color.rgb = ppt_color(RED)
+    critical_legend.line.width = Pt(1.1)
+    add_text(slide, 9.33, legend_y - 0.01, 3.35, 0.24, "Zero-float CPM critical path: none calculated", 7.1, RED, True)
+    add_text(slide, 0.52, 6.67, 12.10, 0.26, "* Bars show two-week sprint allocation windows, not task durations. M-05 and the blocked dashboard are optional Week 9-10 follow-on; not on this 8-week axis.", 8, MUTED)
+
+    detail = slide_base(presentation, "Detailed Dependencies & Critical-Path Readiness", "13 | Dependency detail", 15)
+    add_text(detail, 0.58, 1.20, 7.5, 0.24, "KEY DELIVERY DEPENDENCIES — ILLUSTRATIVE BASELINE", 9.2, ORANGE, True)
+    add_text(detail, 8.30, 1.20, 4.40, 0.24, "CPM dates and float are not calculated", 8.5, RED, True, align=PP_ALIGN.RIGHT)
+
+    def dependency_node(x: float, y: float, title: str, body: str, current: bool = False) -> None:
+        fill = "EAF3F1" if current else "EFF4F6"
+        accent = NAVY if current else TEAL
+        add_box(detail, x, y, 1.56, 0.73, title, body, fill, accent, 9.2, 7.2)
+
+    node_x = [0.55, 2.47, 4.39, 6.31]
+    activity_by_id = {activity["id"]: activity for activity in activities}
+    def node_title(activity_id: str) -> str:
+        activity = activity_by_id[activity_id]
+        return f"{activity_id} {activity['name']}"
+
+    def node_stories(activity_id: str) -> str:
+        return csv_text(activity_by_id[activity_id]["stories"])
+
+    dependency_node(node_x[0], 1.60, node_title("WS-01"), node_stories("WS-01"))
+    dependency_node(node_x[1], 1.60, node_title("WS-03"), node_stories("WS-03"))
+    dependency_node(node_x[2], 1.60, node_title("WS-06"), node_stories("WS-06"))
+    for left_index in (0, 1):
+        add_arrow(detail, node_x[left_index] + 1.58, 1.97, node_x[left_index + 1] - 0.05, 1.97, BLUE, 1.2)
+
+    dependency_node(node_x[0], 2.55, node_title("WS-02"), node_stories("WS-02"))
+    dependency_node(node_x[1], 2.55, node_title("WS-07"), node_stories("WS-07"))
+    add_arrow(detail, node_x[0] + 1.58, 2.92, node_x[1] - 0.05, 2.92, BLUE, 1.2)
+
+    dependency_node(node_x[0], 3.50, "Current Silver", "TMP-015", current=True)
+    dependency_node(node_x[1], 3.50, node_title("WS-08"), node_stories("WS-08"))
+    dependency_node(node_x[2], 3.50, node_title("WS-10"), node_stories("WS-10"))
+    dependency_node(node_x[3], 3.50, node_title("WS-11"), node_stories("WS-11"))
+    for left_index in (0, 1, 2):
+        add_arrow(detail, node_x[left_index] + 1.58, 3.87, node_x[left_index + 1] - 0.05, 3.87, BLUE, 1.2)
+
+    add_box(
+        detail, 8.22, 1.54, 4.48, 2.12, "CPM status: NOT CALCULATED",
+        "Earliest start / finish: NOT AVAILABLE\nLatest start / finish: NOT AVAILABLE\nTotal float: NOT AVAILABLE\n\nThe repository has story points and sprint windows, not activity-level elapsed durations, a kickoff calendar, resource leveling, or approved lag/constraint data. No activity is outlined as critical.",
+        "FAF0E5", ORANGE, 14, 9.5,
+    )
+    add_box(
+        detail, 8.22, 3.82, 4.48, 1.12, "Milestone impact",
+        "M-01 W2: requirements / trade contract\nM-02 W4: source / access decisions\nM-03 W6: controls / trade history\nM-04 W8: test, reconciliation and handover",
+        "EFF4F6", BLUE, 12, 8.7,
+    )
+
+    add_text(detail, 0.58, 4.58, 7.45, 0.22, "Detailed predecessor register (FS = finish-to-start; current prerequisites are undated)", 8.6, NAVY, True)
+    register = [row for row in get_gantt_dependency_register() if row["baseline"]]
+    table_x = [0.60, 3.75, 5.70]
+    table_w = [3.05, 1.88, 2.15]
+    headers = ["PREDECESSOR STORY IDs", "SUCCESSOR", "MILESTONE IMPACT"]
+    for x, width, label in zip(table_x, table_w, headers):
+        add_text(detail, x, 4.82, width, 0.19, label, 7.2, MUTED, True)
+    for row_index, dependency in enumerate(register):
+        pred, succ, impact = dependency["predecessors"], dependency["successor_story_ids"], dependency["milestone_impact"]
+        if dependency["successor"] == "TMP-020":
+            succ += " (BLOCKED)"
+        y = 5.04 + row_index * 0.18
+        if row_index % 2 == 1:
+            band = detail.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.56), Inches(y - 0.015), Inches(7.42), Inches(0.18))
+            band.fill.solid()
+            band.fill.fore_color.rgb = ppt_color("F5F8FA")
+            band.line.fill.background()
+            band.z_order = 1
+        add_text(detail, table_x[0], y, table_w[0], 0.16, pred, 6.8, INK)
+        add_text(detail, table_x[1], y, table_w[1], 0.16, succ, 6.8, INK, True)
+        add_text(detail, table_x[2], y, table_w[2], 0.16, impact, 6.8, INK)
+    add_text(detail, 0.60, 6.72, 12.0, 0.20, "CPM inputs required: task durations, calendar start, complete lag-aware dependencies, and resource constraints. Optional Sprint 5 predecessors remain in the workbook/Jira register.", 7.6, RED, True)
+
+
 def write_readme(dictionary_count: int, jira_count: int) -> None:
+    implementation_counts = defaultdict(int)
+    for story in PLAN["stories"]:
+        implementation_counts[story["status"]] += 1
+    sprint_summary = "; ".join(
+        f"{sprint['name']}: {sum(story['points'] for story in PLAN['stories'] if story['sprint'].split(' (')[0] == sprint['name'].split(' (')[0])}/{sprint['capacity']} SP"
+        for sprint in PLAN["sprints"]
+    )
+    source_notes = "\n".join(f"- {source['name']} [{source['status']}]: {source['open_items']}" for source in PLAN["sources"])
+    status_summary = "; ".join(f"{status}: {count}" for status, count in sorted(implementation_counts.items()))
     content = f'''# Trading Platform SDLC Deliverables
 
-Generated on {AS_OF} from the repository implementation and the structured planning data in `generate_deliverables.py`.
+Generated on {AS_OF} from the repository implementation and `Trading_Project_Master.xlsx`.
 
 ## Files
 
-- `Trading_Platform_Project_Plan.xlsx` — executive summary, business/functional/NFR requirements, sources, DDL-derived dictionary ({dictionary_count} physical columns across 10 tables), backlog, acceptance criteria, dependencies, sprints/Gantt, milestones, RAID, traceability, tests, and current-state evidence.
+- `Trading_Platform_Project_Plan.xlsx` — requirements, source specifications, master-sourced data dictionary ({dictionary_count} physical columns), backlog, acceptance criteria, dependencies, sprint capacity, Gantt, milestones, RAID, traceability, tests, and current-state evidence.
 - `Trading_Platform_Architecture.pptx` — current and target architecture, sources, data flow, model, calculations, workflow, deployment, and explicit gaps.
-- `Trading_Platform_Delivery_Overview.pptx` — executive delivery plan, traceability, Jira hierarchy, critical path, sprint plan, risks, current status, and next steps.
+- `Trading_Platform_Delivery_Overview.pptx` — executive delivery plan plus native-shape eight-week Gantt and dependency detail. CPM dates/float are explicitly not calculated because no activity-level durations/calendar are evidenced.
 - `jira-backlog.csv` — {jira_count} Jira planning rows (epics, stories, subtasks) with acceptance criteria and dependencies.
 - `Trading_Platform_Project_Deliverables.html` — a self-contained, navigable consolidation of every workbook worksheet, presentation text, Jira CSV record, and this README.
-- `generate_deliverables.py` — single structured source for requirements, stories, dependencies, status, sprint plan, risks, decisions, test plan, and presentation content. The dictionary is extracted from `database/tables/**/*.sql` at generation time.
+- `Trading_Project_Master.xlsx` — sole editable project-management data source. The generator reads it and never overwrites it.
+- `generate_deliverables.py` — validates the master, stages reports in a temporary sibling directory, and publishes to `output/` only after validation succeeds.
 
 ## Regenerate
 
@@ -829,23 +1575,25 @@ python -m pip install openpyxl python-pptx
 python docs/project-management/generate_deliverables.py
 ```
 
-The generator uses the repository's physical table DDL as the data dictionary schema source. Update the `PLAN`, `TABLE_META`, or `COLUMN_META` records in the generator when requirements or enriched descriptions change; rerun it to regenerate all deliverables. No application code is changed.
+Edit the master workbook, save it, then run the command from the repository root. Optional `--master-workbook` and `--output-dir` arguments support test copies. Reports publish as one validated set in `docs/project-management/output/`. No application code is changed.
 
-## Evidence and unsupported assumptions
+## Data Status
 
-- Verified current implementation is distinguished from partial, planned, and unconfirmed work throughout the workbook and decks.
-- The checked-in test report records a successful six-task Databricks run on 2026-10-11, including independent position/P&L reconciliation; the attempted second same-parameter run was still queued and is therefore unverified.
-- A focused local test run confirmed 3 failures from stale references to removed `trades_constraints.sql` and `market_prices_constraints.sql`; the current CHECK constraints are consolidated into the Silver table DDL. The full suite summary was not captured. Spark/Delta tests require a supported runtime; do not represent skips as passes.
-- Yahoo Finance is the current prototype provider, not an assumed approved banking data source. Trade data is synthetic. Production market-data rights, source contracts, volume/SLA, security identity, environments, retention, RTO/RPO, dashboard audience, and support ownership require confirmation.
-- The eight-week schedule is relative and proposed, assumes 10 story points per sprint, and has no reserve. Dates are not commitments. The configured Databricks schedule remains paused until operational readiness approval.
+Story implementation statuses from the master: {status_summary}.
+
+Source decisions are maintained in `Data_Sources`:
+{source_notes}
+
+Sprint capacity and optional follow-on scope are maintained in `Sprints`:
+{sprint_summary}. Timelines are relative; CPM dates and float are not calculated from sprint windows or story points. The development schedule remains paused unless a separate readiness decision is recorded.
 
 ## Jira import mapping
 
 This is a planning CSV, not a guaranteed one-click Jira import. `Issue ID` and `Planning Key` values are temporary identifiers, not Jira-generated issue keys. Map `Planning Key` to a text custom field; map `Issue Type`, `Summary`, `Description`, `Priority`, `Status`, `Story Points`, and `Sprint` to the destination Jira fields. Map `Epic Name` and `Epic Link` to the destination edition's epic fields. Map `Parent ID` to the parent relationship field for subtasks; some Jira importers require numeric issue IDs or a separate import pass. Import epics first, capture created Jira keys, then resolve temporary Epic Link references before importing stories and subtasks. `Dependencies` contains planning IDs and should be imported as issue links only after IDs resolve. Confirm required fields, status names, story-point field, hierarchy support, and project permissions with the Jira administrator before import.
 
-## Workbook notes
+## Workbook / Report Notes
 
-Filters, frozen headers, dropdown validations, conditional formatting, formula-driven sprint totals, and a formula/conditional-format Gantt are included. Excel recalculates formulas when opened. The Gantt uses relative weeks 1-8; no kickoff date was supplied.
+The report workbook retains filters, frozen headers, dropdowns, conditional formatting, formulas, and a master-sourced eight-week workstream Gantt. Gantt bars show sprint allocation windows, not task-level durations. The editable master has structured tables and validation. Excel recalculates formulas when opened.
 '''
     (OUT / "README.md").write_text(content, encoding="utf-8")
 
@@ -909,6 +1657,9 @@ def write_combined_html() -> None:
             parts.append(f'<article class="slide"><h3>Slide {slide_number}</h3>')
             for text in texts:
                 parts.append(f"<p>{escape(text)}</p>")
+            notes = slide.notes_slide.notes_text_frame.text.strip()
+            if notes:
+                parts.append(f'<p class="note"><strong>Speaker notes:</strong> {escape(notes)}</p>')
             parts.append("</article>")
     parts.append("</section><section id=\"jira-content\"><h2>Jira import content</h2><p>All logical CSV records are reproduced below, including multiline descriptions and acceptance criteria.</p><div class=\"table-wrap\"><table><thead><tr>")
     jira_headers = list(jira_rows_read[0]) if jira_rows_read else []
@@ -927,17 +1678,71 @@ def write_combined_html() -> None:
 def validate_outputs(dictionary_count: int) -> None:
     xlsx_path = OUT / "Trading_Platform_Project_Plan.xlsx"
     workbook = load_workbook(xlsx_path, data_only=False)
-    expected_sheets = {"Executive Summary", "Business Req", "Functional Req", "NFRs", "Data Sources", "Data Dictionary", "Epics", "Stories", "Subtasks", "Acceptance Criteria", "Dependencies", "Sprints", "Gantt", "Milestones", "RAID", "Traceability", "Test Plan", "Current State"}
+    expected_sheets = {"Executive Dashboard", "Business Req", "Functional Req", "NFRs", "Data Sources", "Data Dictionary", "Epics", "Stories", "Subtasks", "Acceptance Criteria", "Dependencies", "Sprints", "Gantt", "Milestone Tracker", "RAID", "Traceability", "Test Plan", "Current State", "Stakeholder Register", "RACI Matrix", "Integrated Delivery Plan", "Resource Capacity", "Governance", "Change Control", "TPM Scenarios"}
     if set(workbook.sheetnames) != expected_sheets:
         raise RuntimeError(f"Workbook worksheet mismatch: {workbook.sheetnames}")
     if workbook["Data Dictionary"].max_row - 1 != dictionary_count:
         raise RuntimeError("Data Dictionary row count does not match DDL extraction")
-    if not str(workbook["Sprints"]["E2"].value).startswith("=SUMIF"):
+    if not str(workbook["Sprints"]["G2"].value).startswith("=SUMIF"):
         raise RuntimeError("Sprint point formula missing")
+    decks = {}
     for name in ["Trading_Platform_Architecture.pptx", "Trading_Platform_Delivery_Overview.pptx"]:
         deck = Presentation(OUT / name)
+        decks[name] = deck
         if len(deck.slides) < 7:
             raise RuntimeError(f"Presentation appears incomplete: {name}")
+    delivery_deck = decks["Trading_Platform_Delivery_Overview.pptx"]
+    gantt_slide = delivery_deck.slides[-2]
+    detail_slide = delivery_deck.slides[-1]
+    gantt_text = "\n".join(shape.text for shape in gantt_slide.shapes if shape.has_text_frame)
+    detail_text = "\n".join(shape.text for shape in detail_slide.shapes if shape.has_text_frame)
+    if "Integrated Project Delivery Plan — Timeline & Dependencies" not in gantt_text:
+        raise RuntimeError("Executive Gantt slide title is missing")
+    if "KEY DELIVERY DEPENDENCIES — ILLUSTRATIVE BASELINE" not in gantt_text or "KEY DELIVERY DEPENDENCIES — ILLUSTRATIVE BASELINE" not in detail_text:
+        raise RuntimeError("Illustrative-baseline disclaimer missing from Gantt slides")
+    if "CPM status: NOT CALCULATED" not in detail_text or "Total float: NOT AVAILABLE" not in detail_text:
+        raise RuntimeError("CPM limitations are not explicit on dependency slide")
+    for milestone_id in ("M-01", "M-02", "M-03", "M-04"):
+        if milestone_id not in gantt_text or milestone_id not in detail_text:
+            raise RuntimeError(f"Gantt milestone is missing: {milestone_id}")
+    diamond_count = sum(
+        1 for shape in gantt_slide.shapes
+        if shape.shape_type == 1 and shape.auto_shape_type == MSO_SHAPE.DIAMOND
+    )
+    if diamond_count < 5:
+        raise RuntimeError("Gantt must contain four milestone diamonds and one legend diamond")
+
+    # Validate the new slides' printable bounds and prevent overlapping text boxes.
+    for slide in (gantt_slide, detail_slide):
+        text_shapes = [shape for shape in slide.shapes if shape.has_text_frame and shape.text.strip()]
+        for shape in slide.shapes:
+            if shape.left < 0 or shape.top < 0 or shape.left + shape.width > delivery_deck.slide_width or shape.top + shape.height > delivery_deck.slide_height:
+                raise RuntimeError("Gantt slide contains a shape outside the 16:9 canvas")
+        for index, first in enumerate(text_shapes):
+            for second in text_shapes[index + 1:]:
+                overlap_x = min(first.left + first.width, second.left + second.width) - max(first.left, second.left)
+                overlap_y = min(first.top + first.height, second.top + second.height) - max(first.top, second.top)
+                if overlap_x > 0.02 * 914400 and overlap_y > 0.02 * 914400:
+                    raise RuntimeError(f"Overlapping Gantt slide text: {first.text!r} / {second.text!r}")
+
+    activities = get_gantt_activities()
+    baseline_story_ids = {
+        story_id for sprint in PLAN["sprints"] if sprint["baseline"] for story_id in sprint["stories"]
+    }
+    gantt_story_ids = [story_id for activity in activities if activity["baseline"] for story_id in activity["stories"]]
+    if len(gantt_story_ids) != len(set(gantt_story_ids)) or set(gantt_story_ids) != baseline_story_ids:
+        raise RuntimeError("Integrated Gantt activities must cover each baseline story exactly once")
+    for activity in activities:
+        if activity["duration_weeks"] != 2 or activity["finish_week"] != activity["start_week"] + 1:
+            raise RuntimeError(f"Gantt sprint window is inconsistent for {activity['id']}")
+    for sprint in PLAN["sprints"]:
+        if sprint["baseline"]:
+            points = sum(next(story["points"] for story in PLAN["stories"] if story["id"] == story_id) for story_id in sprint["stories"])
+            if points > sprint["capacity"]:
+                raise RuntimeError(f"Sprint capacity exceeded: {sprint['name']} ({points}/{sprint['capacity']} SP)")
+    gantt_sheet = workbook["Gantt"]
+    if not str(gantt_sheet["K2"].value).startswith("=--AND") or gantt_sheet.max_row < len(activities) + 3:
+        raise RuntimeError("Excel Gantt is missing the shared workstream schedule")
     with (OUT / "jira-backlog.csv").open(encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.DictReader(handle))
     if len(rows) != len(jira_rows()) or not {"Epic", "Story", "Sub-task"}.issubset({row["Issue Type"] for row in rows}):
@@ -959,10 +1764,13 @@ def validate_outputs(dictionary_count: int) -> None:
                 if value is not None and html_value(value) not in html_document:
                     raise RuntimeError(f"Combined HTML is missing workbook content from {sheet.title}")
     for deck_name in ["Trading_Platform_Architecture.pptx", "Trading_Platform_Delivery_Overview.pptx"]:
-        for slide in Presentation(OUT / deck_name).slides:
+        for slide in decks[deck_name].slides:
             for shape in slide.shapes:
                 if shape.has_text_frame and shape.text.strip() and html_value(shape.text.strip()) not in html_document:
                     raise RuntimeError(f"Combined HTML is missing presentation text from {deck_name}")
+            note_text = slide.notes_slide.notes_text_frame.text.strip()
+            if note_text and html_value(note_text) not in html_document:
+                raise RuntimeError(f"Combined HTML is missing speaker notes from {deck_name}")
     for row in rows:
         for value in row.values():
             if value and html_value(value) not in html_document:
@@ -1009,20 +1817,68 @@ def validate_outputs(dictionary_count: int) -> None:
             raise RuntimeError(f"Business requirement has an unknown functional requirement: {requirement['id']}")
 
 
-def main() -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
-    dictionary = get_table_ddl()
-    build_workbook(dictionary)
-    build_architecture_deck()
-    build_delivery_deck()
-    build_jira_csv()
-    write_readme(len(dictionary), len(jira_rows()))
-    write_combined_html()
-    validate_outputs(len(dictionary))
-    print(f"Generated and validated deliverables in {OUT}")
-    print(f"DDL columns: {len(dictionary)} across {len(TABLE_META)} tables")
-    print(f"Jira planning rows: {len(jira_rows())} ({len(PLAN['epics'])} epics, {len(PLAN['stories'])} stories, {len(list_subtasks())} subtasks)")
+def generate_reports(master_path: Path = MASTER_PATH, output_dir: Path = OUTPUT_DIR) -> Path:
+    """Build reports from the master workbook, validating fully before publication."""
+    global OUT, PLAN, TESTS, GANTT_ACTIVITY_DEFS
+
+    master_path = Path(master_path).resolve()
+    output_dir = Path(output_dir).resolve()
+    if output_dir == master_path or master_path.is_relative_to(output_dir):
+        raise ValueError("Output directory must not be the master workbook or contain it")
+
+    model, tests, gantt_definitions = load_master_model(master_path)
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    stage_dir = Path(tempfile.mkdtemp(prefix=f".{output_dir.name}.stage-", dir=output_dir.parent))
+    backup_dir = output_dir.with_name(f".{output_dir.name}.backup-{uuid.uuid4().hex}")
+    original_state = (OUT, PLAN, TESTS, GANTT_ACTIVITY_DEFS)
+    try:
+        OUT = stage_dir
+        PLAN = model
+        TESTS = tests
+        GANTT_ACTIVITY_DEFS = gantt_definitions
+        dictionary = model["data_dictionary"]
+        build_workbook(dictionary)
+        build_architecture_deck()
+        build_delivery_deck()
+        build_jira_csv()
+        write_readme(len(dictionary), len(jira_rows()))
+        write_combined_html()
+        validate_outputs(len(dictionary))
+
+        had_previous_output = output_dir.exists()
+        if had_previous_output:
+            os.replace(output_dir, backup_dir)
+        try:
+            os.replace(stage_dir, output_dir)
+        except Exception:
+            if had_previous_output and backup_dir.exists():
+                os.replace(backup_dir, output_dir)
+            raise
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir)
+        logger.info("Generated and validated reports from %s into %s", master_path, output_dir)
+        return output_dir
+    except Exception:
+        logger.exception("Report generation failed; previously published output was preserved")
+        raise
+    finally:
+        OUT, PLAN, TESTS, GANTT_ACTIVITY_DEFS = original_state
+        if stage_dir.exists():
+            shutil.rmtree(stage_dir)
+        if backup_dir.exists() and output_dir.exists():
+            shutil.rmtree(backup_dir)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Generate project reports from the master Excel workbook")
+    parser.add_argument("--master-workbook", type=Path, default=MASTER_PATH)
+    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    output_path = generate_reports(args.master_workbook, args.output_dir)
+    print(f"Generated and validated deliverables in {output_path}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
